@@ -8,6 +8,7 @@ from .spec import Spec
 from .docx_utils import delete_paragraph, set_run_fonts
 from typing import Optional
 
+
 RE_SUBTITLE_CN = re.compile(r"^\s*（[一二三四五六七八九十]+）")  # （一）（二）…
 
 def _apply_paragraph_common(p, line_spacing: float, space_before_pt: float, space_after_pt: float):
