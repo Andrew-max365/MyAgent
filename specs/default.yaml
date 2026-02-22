@@ -1,0 +1,31 @@
+# specs/default.yaml
+fonts:
+  zh: "宋体"
+  en: "Times New Roman"
+
+body:
+  font_size_pt: 12          # 小四≈12pt（你也可以改成 10.5）
+  line_spacing: 1.5         # 倍数行距
+  space_before_pt: 0
+  space_after_pt: 0
+  first_line_chars: 2       # 首行缩进 2 字符（按字号换算）
+
+heading:
+  h1:
+    font_size_pt: 14
+    bold: true
+    space_before_pt: 6
+    space_after_pt: 6
+  h2:
+    font_size_pt: 13
+    bold: true
+    space_before_pt: 6
+    space_after_pt: 6
+  h3:
+    font_size_pt: 12
+    bold: true
+    space_before_pt: 6
+    space_after_pt: 6
+
+cleanup:
+  max_consecutive_blank_paragraphs: 1
