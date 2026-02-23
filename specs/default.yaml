@@ -12,20 +12,40 @@ body:
 
 heading:
   h1:
-    font_size_pt: 14
+    font_size_pt: 16
     bold: true
-    space_before_pt: 6
+    space_before_pt: 12
     space_after_pt: 6
   h2:
-    font_size_pt: 13
+    font_size_pt: 14
     bold: true
-    space_before_pt: 6
-    space_after_pt: 6
+    space_before_pt: 10
+    space_after_pt: 4
   h3:
     font_size_pt: 12
     bold: true
-    space_before_pt: 6
-    space_after_pt: 6
+    space_before_pt: 8
+    space_after_pt: 2
+
+caption:
+  font_size_pt: 10.5
+  bold: false
+  space_before_pt: 3
+  space_after_pt: 3
+  center: true
+
+list_item:
+  # 列表段落最终的段落格式（Pt）
+  left_indent_pt: 18
+  hanging_indent_pt: 18
+  # 用于创建 numbering 定义的缩进（twips）
+  num_left_twips: 720
+  num_hanging_twips: 360
+  # 至少连续几条才认为是列表（避免误伤单独的“1.”）
+  min_run_len: 2
+
 
 cleanup:
-  max_consecutive_blank_paragraphs: 1
+  max_consecutive_blank_paragraphs: 0
+  remove_all_blank_paragraphs: true
+  remove_blank_after_roles: [ "h1", "h2", "h3", "caption" ]

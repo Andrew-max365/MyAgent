@@ -39,3 +39,19 @@ def delete_paragraph(paragraph: Paragraph):
     p = paragraph._element
     p.getparent().remove(p)
     paragraph._p = paragraph._element = None  # help GC
+
+def is_effectively_blank_paragraph(p) -> bool:
+    """
+    更强的空段判断：把全角空格、NBSP、制表符等也视为“空”
+    """
+    def norm(s: str) -> str:
+        return (s or "").replace("\u3000", "").replace("\xa0", "").replace("\t", "")
+
+    text = norm(p.text)
+    if text.strip():
+        return False
+
+    for r in p.runs:
+        if norm(r.text).strip():
+            return False
+    return True
