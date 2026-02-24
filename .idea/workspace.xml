@@ -7,7 +7,7 @@
     <list default="true" id="2454bc74-db32-4487-b43f-26d4a5308b44" name="更改" comment="MyAgent">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/formatter.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/formatter.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/judge.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/judge.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/samples/output.docx" beforeDir="false" afterPath="$PROJECT_DIR$/tests/samples/output.docx" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/samples/output.report.json" beforeDir="false" afterPath="$PROJECT_DIR$/tests/samples/output.report.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -129,7 +129,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771854793414</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="MyAgent">
+      <option name="closed" value="true" />
+      <created>1771907500058</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1771907500058</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">

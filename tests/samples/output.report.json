@@ -14,6 +14,11 @@
       "h3": 5,
       "body": 13
     },
+    "coverage": {
+      "total_blocks": 21,
+      "labeled_blocks": 21,
+      "coverage_rate": 1.0
+    },
     "consistency": {
       "compared": 21,
       "mismatched": 0,
@@ -31,7 +36,13 @@
     "cleanup_consecutive_blanks_deleted": 0,
     "cleanup_consecutive_blank_keep": 0,
     "delete_blanks_after_titles_deleted": 0,
-    "split_body_new_paragraphs_created": 20
+    "split_body_new_paragraphs_created": 20,
+    "split_body_original_paragraphs_affected": 7,
+    "split_body_max_lines_in_one_paragraph": 5,
+    "split_body_estimated_new_paragraphs": 20,
+    "split_body_new_paragraph_roles": {
+      "body": 20
+    }
   },
   "formatted": {
     "counts": {

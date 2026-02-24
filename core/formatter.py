@@ -300,6 +300,15 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     label_list = [labels.get(b.block_id, "unknown") for b in blocks]
     label_counts = dict(Counter(label_list))
 
+    # labels 覆盖率（仅针对 blocks；unknown/blank 视为未标注）
+    total_blocks = len(blocks)
+    labeled_blocks = 0
+    for b in blocks:
+        lab = labels.get(b.block_id)
+        if lab and lab not in ("blank", "unknown"):
+            labeled_blocks += 1
+    coverage_rate = (labeled_blocks / total_blocks) if total_blocks else 0.0
+
     # label vs fallback 规则的一致性（仅针对原始段落）
     mismatch = 0
     compared = 0
@@ -335,6 +344,11 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         "labels": {
             "source": label_source,
             "counts": label_counts,
+            "coverage": {
+                "total_blocks": total_blocks,
+                "labeled_blocks": labeled_blocks,
+                "coverage_rate": coverage_rate,
+            },
             "consistency": {
                 "compared": compared,
                 "mismatched": mismatch,
@@ -361,14 +375,38 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     deleted_after_roles = _delete_blanks_after_roles(doc, roles=set(["h1", "h2", "h3", "caption"]), role_getter=get_role)
     report["actions"]["delete_blanks_after_titles_deleted"] = deleted_after_roles
 
-    # 3) 核心修复：拆正文段落里的软回车换行（\\n）
+    # 3) 核心修复：拆正文段落里的软回车换行（\n）
+    # 先做一次“预估/统计”，便于 report 诊断
+    split_affected = 0
+    split_max_lines = 0
+    split_estimated_new = 0
+    for p in orig_paras:
+        if is_effectively_blank_paragraph(p):
+            continue
+        if get_role(p) != "body":
+            continue
+        t = p.text or ""
+        if "\n" not in t:
+            continue
+        lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+        if len(lines) <= 1:
+            continue
+        split_affected += 1
+        split_max_lines = max(split_max_lines, len(lines))
+        split_estimated_new += (len(lines) - 1)
+
+    new_paras_from_split: List[Paragraph] = []
     def _inherit_label(parent_p, child_p):
         # 让拆分出来的新段落继承原段落的标签（避免 fallback 造成标签不一致）
         if parent_p in label_by_para and child_p not in label_by_para:
             label_by_para[child_p] = label_by_para[parent_p]
+        new_paras_from_split.append(child_p)
 
     created_by_split = _split_body_paragraphs_on_linebreaks(doc, role_getter=get_role, on_new_paragraph=_inherit_label)
     report["actions"]["split_body_new_paragraphs_created"] = created_by_split
+    report["actions"]["split_body_original_paragraphs_affected"] = split_affected
+    report["actions"]["split_body_max_lines_in_one_paragraph"] = split_max_lines
+    report["actions"]["split_body_estimated_new_paragraphs"] = split_estimated_new
 
     # 4) 套格式
     formatted_counter = Counter()
@@ -473,6 +511,13 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         report["warnings"].append(
             f"检测到 {orphan_h3} 个 h3 在其前方未出现 h2（可能层级断裂或标签误判）。"
         )
+
+    # 额外统计：拆分新增段落的 role 分布（便于验证“新增段大多为正文”这一预期）
+    try:
+        new_role_counts = Counter(get_role(p) for p in new_paras_from_split if p is not None)
+        report["actions"]["split_body_new_paragraph_roles"] = dict(new_role_counts)
+    except Exception:
+        report["actions"]["split_body_new_paragraph_roles"] = {}
 
     report["meta"]["paragraphs_after"] = len(list(doc.paragraphs))
     report["meta"]["blank_paragraphs_after"] = sum(1 for p in doc.paragraphs if is_effectively_blank_paragraph(p))
