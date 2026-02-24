@@ -5,10 +5,14 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2454bc74-db32-4487-b43f-26d4a5308b44" name="更改" comment="MyAgent">
+      <change afterPath="$PROJECT_DIR$/agent/Structura_agent.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/agent/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/service/format_service.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/ui/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/MyAgent.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/MyAgent.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/formatter.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/formatter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/format_docx.py" beforeDir="false" afterPath="$PROJECT_DIR$/format_docx.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/samples/output.docx" beforeDir="false" afterPath="$PROJECT_DIR$/tests/samples/output.docx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/samples/output.report.json" beforeDir="false" afterPath="$PROJECT_DIR$/tests/samples/output.report.json" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -25,7 +29,7 @@
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
       <map>
-        <entry key="$PROJECT_DIR$" value="master" />
+        <entry key="$PROJECT_DIR$" value="2.0" />
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -45,12 +49,13 @@
   "keyToString": {
     "Python.formatter.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
-    "git-widget-placeholder": "2.0",
+    "git-widget-placeholder": "2.1",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -137,7 +142,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771907500058</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="MyAgent">
+      <option name="closed" value="true" />
+      <created>1771910886282</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1771910886282</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
