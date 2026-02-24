@@ -9,13 +9,21 @@
   "labels": {
     "source": "rule_based",
     "counts": {
-      "body": 19,
-      "h2": 2
+      "h1": 1,
+      "h2": 2,
+      "h3": 5,
+      "body": 13
+    },
+    "coverage": {
+      "total_blocks": 21,
+      "labeled_blocks": 21,
+      "coverage_rate": 1.0
     },
     "consistency": {
       "compared": 21,
-      "mismatched": 6,
-      "mismatch_rate": 0.2857142857142857
+      "mismatched": 0,
+      "mismatch_rate": 0.0,
+      "mismatch_examples": []
     }
   },
   "plan_executed": [
@@ -28,7 +36,13 @@
     "cleanup_consecutive_blanks_deleted": 0,
     "cleanup_consecutive_blank_keep": 0,
     "delete_blanks_after_titles_deleted": 0,
-    "split_body_new_paragraphs_created": 20
+    "split_body_new_paragraphs_created": 20,
+    "split_body_original_paragraphs_affected": 7,
+    "split_body_max_lines_in_one_paragraph": 5,
+    "split_body_estimated_new_paragraphs": 20,
+    "split_body_new_paragraph_roles": {
+      "body": 20
+    }
   },
   "formatted": {
     "counts": {
@@ -39,7 +53,6 @@
     }
   },
   "warnings": [
-    "检测到正文段落含软回车(\\n)，已自动拆分为独立段落：新增 20 段。",
-    "标签与回退规则(detect_role)存在不一致：6/21 (≈29%)。建议统一以 labels 为准，并逐步收敛规则/LLM 标注。"
+    "检测到正文段落含软回车(\\n)，已自动拆分为独立段落：新增 20 段。"
   ]
 }
