@@ -186,11 +186,15 @@ def _delete_blanks_after_roles(doc, roles: Set[str], role_getter=None) -> int:
     return deleted
 
 
-def _split_body_paragraphs_on_linebreaks(doc, role_getter=None) -> int:
+def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph=None) -> int:
     """
     关键修复：
-    把正文段落里的 '\\n'（通常是 Shift+Enter 软回车）拆成多个段落，
-    这样每一条（比如 \\n1. \\n2.）都能获得“首行缩进”。
+    把正文段落里的 '\n'（通常是 Shift+Enter 软回车）拆成多个段落，
+    这样每一条（比如 \n1. \n2.）都能获得“首行缩进”。
+
+    - role_getter: 用于判断某段是否为 body（默认 detect_role）。
+    - on_new_paragraph(parent, child): 可选回调；当从 parent 拆出 child 时调用。
+      用于“继承标签/元数据”等（例如：child 的 role 继承 parent）。
 
     返回：新增段落数量（插入了多少个新段落）。
     """
@@ -234,6 +238,14 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None) -> int:
                 new_p.style = p.style
             except Exception:
                 pass
+
+            if on_new_paragraph is not None:
+                try:
+                    on_new_paragraph(p, new_p)
+                except Exception:
+                    # 回调失败不应影响主流程
+                    pass
+
             prev = new_p
 
         # 跳过新插入的段落
@@ -291,6 +303,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     # label vs fallback 规则的一致性（仅针对原始段落）
     mismatch = 0
     compared = 0
+    mismatch_examples = []
     for b in blocks:
         p = para_by_index.get(b.paragraph_index)
         if p is None:
@@ -299,8 +312,17 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         if not lab or lab == "blank":
             continue
         compared += 1
-        if detect_role(p) != lab:
+        det = detect_role(p)
+        if det != lab:
             mismatch += 1
+            if len(mismatch_examples) < 5:
+                mismatch_examples.append({
+                    "paragraph_index": b.paragraph_index,
+                    "block_id": b.block_id,
+                    "label": lab,
+                    "detect_role": det,
+                    "text": (p.text or "")[:120],
+                })
 
     list_para_count = sum(1 for p in orig_paras if is_list_paragraph(p))
 
@@ -317,6 +339,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 "compared": compared,
                 "mismatched": mismatch,
                 "mismatch_rate": (mismatch / compared) if compared else 0.0,
+                "mismatch_examples": mismatch_examples,
             },
         },
         "plan_executed": [
@@ -339,7 +362,12 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     report["actions"]["delete_blanks_after_titles_deleted"] = deleted_after_roles
 
     # 3) 核心修复：拆正文段落里的软回车换行（\\n）
-    created_by_split = _split_body_paragraphs_on_linebreaks(doc, role_getter=get_role)
+    def _inherit_label(parent_p, child_p):
+        # 让拆分出来的新段落继承原段落的标签（避免 fallback 造成标签不一致）
+        if parent_p in label_by_para and child_p not in label_by_para:
+            label_by_para[child_p] = label_by_para[parent_p]
+
+    created_by_split = _split_body_paragraphs_on_linebreaks(doc, role_getter=get_role, on_new_paragraph=_inherit_label)
     report["actions"]["split_body_new_paragraphs_created"] = created_by_split
 
     # 4) 套格式

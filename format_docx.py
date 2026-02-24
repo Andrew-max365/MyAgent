@@ -9,6 +9,15 @@ from core.judge import rule_based_labels
 from core.formatter import apply_formatting
 from core.writer import save_docx
 
+
+def _ensure_docx_path(path: str) -> str:
+    # 若用户传入不带扩展名或扩展名为空，则默认补 .docx（兼容你之前的用法）
+    root, ext = os.path.splitext(path)
+    if ext == "":
+        return path + ".docx"
+    return path
+
+
 def _default_report_path(output_path: str) -> str:
     root, ext = os.path.splitext(output_path)
     return root + ".report.json"
@@ -19,7 +28,7 @@ def main():
         sys.exit(1)
 
     input_path = sys.argv[1]
-    output_path = sys.argv[2]
+    output_path = _ensure_docx_path(sys.argv[2])
     spec_path = sys.argv[3] if len(sys.argv) >= 4 else "specs/default.yaml"
     report_path = sys.argv[4] if len(sys.argv) >= 5 else _default_report_path(output_path)
 
@@ -28,7 +37,7 @@ def main():
     doc, blocks = parse_docx_to_blocks(input_path)
 
     # 先用规则判断段落类型（后续你接 LLM，就替换这一步）
-    labels = rule_based_labels(blocks)
+    labels = rule_based_labels(blocks, doc=doc)
     labels["_source"] = "rule_based"
 
     # 真正执行排版（修改 doc 对象），并返回可解释的 report(dict)

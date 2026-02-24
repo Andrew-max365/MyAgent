@@ -9,13 +9,16 @@
   "labels": {
     "source": "rule_based",
     "counts": {
-      "body": 19,
-      "h2": 2
+      "h1": 1,
+      "h2": 2,
+      "h3": 5,
+      "body": 13
     },
     "consistency": {
       "compared": 21,
-      "mismatched": 6,
-      "mismatch_rate": 0.2857142857142857
+      "mismatched": 0,
+      "mismatch_rate": 0.0,
+      "mismatch_examples": []
     }
   },
   "plan_executed": [
@@ -39,7 +42,6 @@
     }
   },
   "warnings": [
-    "检测到正文段落含软回车(\\n)，已自动拆分为独立段落：新增 20 段。",
-    "标签与回退规则(detect_role)存在不一致：6/21 (≈29%)。建议统一以 labels 为准，并逐步收敛规则/LLM 标注。"
+    "检测到正文段落含软回车(\\n)，已自动拆分为独立段落：新增 20 段。"
   ]
 }
