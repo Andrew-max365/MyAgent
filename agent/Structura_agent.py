@@ -1,4 +1,4 @@
-# agent/doc_agent.py
+# agent/Structura_agent.py
 """
 DocAgent: 文档质量检查 + 自动修复（排版）智能体
 
@@ -9,8 +9,8 @@ DocAgent: 文档质量检查 + 自动修复（排版）智能体
 - 解释：输出 report（可解释、可视化友好）
 
 用法：
-  python -m agent.doc_agent tests/samples/sample.docx tests/samples/output.docx
-  python agent/doc_agent.py tests/samples/sample.docx tests/samples/output.docx
+  python -m agent.Structura_agent tests/samples/sample.docx tests/samples/output.docx
+  python agent/Structura_agent.py tests/samples/sample.docx tests/samples/output.docx
 """
 
 from __future__ import annotations
