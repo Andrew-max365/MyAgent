@@ -3,6 +3,7 @@ import re
 from typing import Dict, List, Optional
 
 from .parser import Block
+from .docx_utils import iter_all_paragraphs
 
 # 兼容：无 doc 情况下的简易规则（保留）
 RE_H1 = re.compile(r"^\s*第[一二三四五六七八九十百千0-9]+章")
@@ -29,7 +30,7 @@ def rule_based_labels(blocks: List[Block], doc=None) -> Dict[int, str]:
         try:
             # 注意：这里导入的是你优化后的 formatter（若你直接替换文件名，可改回 .formatter）
             from .formatter import detect_role
-            paras = list(doc.paragraphs)
+            paras = iter_all_paragraphs(doc)
             for b in blocks:
                 p = paras[b.paragraph_index] if 0 <= b.paragraph_index < len(paras) else None
                 if p is None:

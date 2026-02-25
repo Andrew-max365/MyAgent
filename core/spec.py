@@ -48,6 +48,15 @@ def _validate_and_fill_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
     list_item.setdefault("min_run_len", 2)
     cfg["list_item"] = list_item
 
+    paragraph = dict(cfg.get("paragraph") or {})
+    paragraph.setdefault("alignment", "justify")
+    cfg["paragraph"] = paragraph
+
+    caption = dict(cfg.get("caption") or {})
+    caption.setdefault("center", True)
+    caption.setdefault("alignment", "center" if caption.get("center", True) else "left")
+    cfg["caption"] = caption
+
     return cfg
 
 
