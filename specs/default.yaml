@@ -10,6 +10,10 @@ body:
   space_after_pt: 0
   first_line_chars: 2       # 首行缩进 2 字符（按字号换算）
 
+
+paragraph:
+  alignment: "justify"    # 中文文档默认两端对齐
+
 heading:
   h1:
     font_size_pt: 16
@@ -33,6 +37,7 @@ caption:
   space_before_pt: 3
   space_after_pt: 3
   center: true
+  alignment: "center"
 
 list_item:
   # 列表段落最终的段落格式（Pt）
