@@ -226,22 +226,18 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
         role_getter = detect_role
 
     created = 0
-    i = 0
-    while i < len(doc.paragraphs):
-        p = doc.paragraphs[i]
+    # 使用快照：覆盖正文与表格段落，同时避免边插入边遍历造成错位
+    for p in list(iter_all_paragraphs(doc)):
         if is_effectively_blank_paragraph(p):
-            i += 1
             continue
 
         # 只拆正文；标题/题注不拆，避免破坏结构
         role = role_getter(p)
         if role != "body":
-            i += 1
             continue
 
         text = p.text or ""
         if "\n" not in text:
-            i += 1
             continue
 
         # 保留每一行对应的“源 run 样式”（颜色/粗斜体），避免拆段后样式丢失
@@ -264,7 +260,6 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
             resolved_lines.append((line_text, style_run))
 
         if len(resolved_lines) <= 1:
-            i += 1
             continue
 
         # 当前段落替换成第一行并继承该行样式
@@ -294,9 +289,6 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
                     pass
 
             prev = new_p
-
-        # 跳过新插入的段落
-        i += len(resolved_lines)
     return created
 
 
@@ -567,7 +559,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         )
 
     # 4) 标题层级提示：h3 前无 h2
-    roles_seq = [get_role(p) for p in doc.paragraphs if not is_effectively_blank_paragraph(p)]
+    roles_seq = [get_role(p) for p in iter_all_paragraphs(doc) if not is_effectively_blank_paragraph(p)]
     h2_seen = False
     orphan_h3 = 0
     for r in roles_seq:
