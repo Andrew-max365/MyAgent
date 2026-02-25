@@ -1,9 +1,12 @@
 # core/docx_utils.py
 from copy import deepcopy
-from typing import List, Optional, Tuple
+from typing import Iterator, List, Optional, Tuple, Union
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.oxml.text.paragraph import CT_P
+from docx.oxml.table import CT_Tbl
+from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 
 
@@ -139,6 +142,45 @@ def set_run_fonts(run, zh_font: str, en_font: str):
     rFonts.set(qn("w:cs"), en_font)
 
 
+<<<<<<< codex/review-code-for-layout-agent-issues-i040gs
+def _iter_block_items(parent) -> Iterator[Union[Paragraph, Table]]:
+    """按 XML 实际顺序遍历容器内 block（段落/表格）。"""
+    if hasattr(parent, "element") and getattr(parent.element, "body", None) is not None:
+        # Document
+        parent_elm = parent.element.body
+    elif isinstance(parent, _Cell):
+        parent_elm = parent._tc
+    else:
+        parent_elm = parent._element
+    for child in parent_elm.iterchildren():
+        if isinstance(child, CT_P):
+            yield Paragraph(child, parent)
+        elif isinstance(child, CT_Tbl):
+            yield Table(child, parent)
+
+
+def iter_all_paragraphs(doc) -> List[Paragraph]:
+    """返回文档所有段落（含表格与嵌套表格），并保持文档流顺序。"""
+    out: List[Paragraph] = []
+
+    def walk_container(container):
+        for block in _iter_block_items(container):
+            if isinstance(block, Paragraph):
+                out.append(block)
+                continue
+
+            # block is Table: 避免合并单元格导致重复遍历同一 tc
+            seen_tc = set()
+            for row in block.rows:
+                for cell in row.cells:
+                    tc_id = id(cell._tc)
+                    if tc_id in seen_tc:
+                        continue
+                    seen_tc.add(tc_id)
+                    walk_container(cell)
+
+    walk_container(doc)
+=======
 def iter_all_paragraphs(doc) -> List[Paragraph]:
     """返回文档中所有段落（含表格单元格与嵌套表格）。"""
     out: List[Paragraph] = []
@@ -153,6 +195,7 @@ def iter_all_paragraphs(doc) -> List[Paragraph]:
     out.extend(doc.paragraphs)
     for tbl in doc.tables:
         walk_table(tbl)
+>>>>>>> master
     return out
 
 
