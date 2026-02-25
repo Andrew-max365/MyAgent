@@ -276,6 +276,11 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
 
     cleanup_cfg = cfg.get("cleanup", {})
     max_blank_keep = int(cleanup_cfg.get("max_consecutive_blank_paragraphs", 1))
+    remove_blank_after_roles = set(cleanup_cfg.get("remove_blank_after_roles", ["h1", "h2", "h3", "caption"]))
+
+    list_cfg = cfg.get("list_item", {})
+    list_left_indent = float(list_cfg.get("left_indent_pt", 18))
+    list_hanging_indent = float(list_cfg.get("hanging_indent_pt", 18))
 
     # ====== 角色映射：优先 labels，缺失才 fallback detect_role ======
     # 关键点：用 Paragraph 对象做 key，避免后续删除/插入导致“索引错位”
@@ -372,7 +377,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     report["actions"]["cleanup_consecutive_blank_keep"] = max_blank_keep
 
     # 2) 标题/题注后空段删光
-    deleted_after_roles = _delete_blanks_after_roles(doc, roles=set(["h1", "h2", "h3", "caption"]), role_getter=get_role)
+    deleted_after_roles = _delete_blanks_after_roles(doc, roles=remove_blank_after_roles, role_getter=get_role)
     report["actions"]["delete_blanks_after_titles_deleted"] = deleted_after_roles
 
     # 3) 核心修复：拆正文段落里的软回车换行（\n）
@@ -423,13 +428,19 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         if role == "body":
             _apply_paragraph_common(p, body_line_spacing, body_before, body_after)
 
-            # 缩进“清场”：避免 left/hanging 抵消 first_line
-            p.paragraph_format.left_indent = Pt(0)
-            p.paragraph_format.hanging_indent = Pt(0)
-            p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
+            # 普通正文与 Word 列表正文分别处理缩进，避免相互覆盖
+            if is_list_paragraph(p):
+                p.paragraph_format.left_indent = Pt(list_left_indent)
+                p.paragraph_format.hanging_indent = Pt(list_hanging_indent)
+                p.paragraph_format.first_line_indent = Pt(0)
+                formatted_counter["list_body"] += 1
+            else:
+                p.paragraph_format.left_indent = Pt(0)
+                p.paragraph_format.hanging_indent = Pt(0)
+                p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
+                formatted_counter["body"] += 1
 
             _apply_runs_font(p, zh_font, en_font, size_pt=body_size, bold=False)
-            formatted_counter["body"] += 1
 
         elif role in ("h1", "h2", "h3"):
             hc = heading_cfg[role]
