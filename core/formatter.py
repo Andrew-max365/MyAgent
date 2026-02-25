@@ -176,7 +176,13 @@ def _cleanup_consecutive_blanks(doc, max_keep: int) -> int:
     """压缩连续空段：最多保留 max_keep 个（0=全删）。返回删除的空段数量。"""
     blank_run = 0
     to_delete = []
-    for p in list(doc.paragraphs):
+    last_parent = None
+    for p in list(iter_all_paragraphs(doc)):
+        cur_parent = p._element.getparent()
+        if cur_parent is not last_parent:
+            # 不跨容器（正文/单元格）累计空段，避免误删
+            blank_run = 0
+            last_parent = cur_parent
         if is_effectively_blank_paragraph(p):
             blank_run += 1
             if blank_run > max_keep:
@@ -197,17 +203,28 @@ def _delete_blanks_after_roles(doc, roles: Set[str], role_getter=None) -> int:
     if role_getter is None:
         role_getter = detect_role
 
-    deleted = 0
+    to_delete = []
+    paras = list(iter_all_paragraphs(doc))
     i = 0
-    while i < len(doc.paragraphs):
-        cur = doc.paragraphs[i]
+    while i < len(paras):
+        cur = paras[i]
         cur_role = role_getter(cur)
         if cur_role in roles:
-            while i + 1 < len(doc.paragraphs) and is_effectively_blank_paragraph(doc.paragraphs[i + 1]):
-                delete_paragraph(doc.paragraphs[i + 1])
-                deleted += 1
+            cur_parent = cur._element.getparent()
+            j = i + 1
+            while j < len(paras):
+                nxt = paras[j]
+                if nxt._element.getparent() is not cur_parent:
+                    break
+                if not is_effectively_blank_paragraph(nxt):
+                    break
+                to_delete.append(nxt)
+                j += 1
         i += 1
-    return deleted
+
+    for p in reversed(to_delete):
+        delete_paragraph(p)
+    return len(to_delete)
 
 
 def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph=None) -> int:
