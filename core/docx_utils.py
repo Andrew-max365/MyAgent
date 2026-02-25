@@ -142,6 +142,7 @@ def set_run_fonts(run, zh_font: str, en_font: str):
     rFonts.set(qn("w:cs"), en_font)
 
 
+<<<<<<< codex/review-code-for-layout-agent-issues-i040gs
 def _iter_block_items(parent) -> Iterator[Union[Paragraph, Table]]:
     """按 XML 实际顺序遍历容器内 block（段落/表格）。"""
     if hasattr(parent, "element") and getattr(parent.element, "body", None) is not None:
@@ -179,6 +180,22 @@ def iter_all_paragraphs(doc) -> List[Paragraph]:
                     walk_container(cell)
 
     walk_container(doc)
+=======
+def iter_all_paragraphs(doc) -> List[Paragraph]:
+    """返回文档中所有段落（含表格单元格与嵌套表格）。"""
+    out: List[Paragraph] = []
+
+    def walk_table(table):
+        for row in table.rows:
+            for cell in row.cells:
+                out.extend(cell.paragraphs)
+                for inner in cell.tables:
+                    walk_table(inner)
+
+    out.extend(doc.paragraphs)
+    for tbl in doc.tables:
+        walk_table(tbl)
+>>>>>>> master
     return out
 
 
