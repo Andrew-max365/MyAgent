@@ -5,6 +5,7 @@ from collections import Counter
 
 from docx.shared import Pt
 from docx.enum.text import WD_LINE_SPACING
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 
@@ -103,11 +104,11 @@ def detect_role(paragraph) -> str:
         style_name = (paragraph.style.name or "").lower()
     except Exception:
         style_name = ""
-    if "heading 1" in style_name:
+    if "heading 1" in style_name or "标题 1" in style_name:
         return "h1"
-    if "heading 2" in style_name:
+    if "heading 2" in style_name or "标题 2" in style_name:
         return "h2"
-    if "heading 3" in style_name:
+    if "heading 3" in style_name or "标题 3" in style_name:
         return "h3"
 
     t = text.strip()
@@ -140,6 +141,19 @@ def _apply_paragraph_common(p, line_spacing: float, space_before_pt: float, spac
     pf.space_after = Pt(space_after_pt)
     pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
     pf.line_spacing = line_spacing
+
+
+def _resolve_alignment(name: str):
+    """将配置里的对齐字符串映射为 python-docx 枚举。"""
+    mapping = {
+        "left": WD_ALIGN_PARAGRAPH.LEFT,
+        "center": WD_ALIGN_PARAGRAPH.CENTER,
+        "right": WD_ALIGN_PARAGRAPH.RIGHT,
+        "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+        "both": WD_ALIGN_PARAGRAPH.JUSTIFY,
+        "distributed": WD_ALIGN_PARAGRAPH.DISTRIBUTE,
+    }
+    return mapping.get((name or "").strip().lower())
 
 
 def _apply_runs_font(p, zh_font: str, en_font: str, size_pt: float, force_bold=None):
@@ -305,6 +319,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
 
     heading_cfg = cfg["heading"]
     caption_cfg = cfg.get("caption", None)
+    paragraph_cfg = cfg.get("paragraph", {})
 
     cleanup_cfg = cfg.get("cleanup", {})
     max_blank_keep = int(cleanup_cfg.get("max_consecutive_blank_paragraphs", 1))
@@ -313,6 +328,8 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     list_cfg = cfg.get("list_item", {})
     list_left_indent = float(list_cfg.get("left_indent_pt", 18))
     list_hanging_indent = float(list_cfg.get("hanging_indent_pt", 18))
+
+    body_alignment = _resolve_alignment(paragraph_cfg.get("alignment", "justify"))
 
     # ====== 角色映射：优先 labels，缺失才 fallback detect_role ======
     # 关键点：用 Paragraph 对象做 key，避免后续删除/插入导致“索引错位”
@@ -472,6 +489,8 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
                 formatted_counter["body"] += 1
 
+            if body_alignment is not None:
+                p.paragraph_format.alignment = body_alignment
             _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
 
         elif role in ("h1", "h2", "h3"):
@@ -499,12 +518,17 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 p.paragraph_format.left_indent = Pt(0)
                 p.paragraph_format.hanging_indent = Pt(0)
                 p.paragraph_format.first_line_indent = Pt(0)
+                cap_align = _resolve_alignment(caption_cfg.get("alignment", "center" if caption_cfg.get("center", True) else "left"))
+                if cap_align is not None:
+                    p.paragraph_format.alignment = cap_align
                 _apply_runs_font(p, zh_font, en_font, size_pt=size, force_bold=bold)
             else:
                 _apply_paragraph_common(p, body_line_spacing, body_before, body_after)
                 p.paragraph_format.left_indent = Pt(0)
                 p.paragraph_format.hanging_indent = Pt(0)
                 p.paragraph_format.first_line_indent = Pt(0)
+                if body_alignment is not None:
+                    p.paragraph_format.alignment = body_alignment
                 _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
 
             formatted_counter["caption"] += 1
@@ -515,6 +539,8 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             p.paragraph_format.left_indent = Pt(0)
             p.paragraph_format.hanging_indent = Pt(0)
             p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
+            if body_alignment is not None:
+                p.paragraph_format.alignment = body_alignment
             _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
             formatted_counter["unknown_as_body"] += 1
 
