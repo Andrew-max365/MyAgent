@@ -1,18 +1,21 @@
 # service/format_service.py
 from __future__ import annotations
 
-import io
-import os
 import json
+import os
 import tempfile
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 
 from core.spec import load_spec
 from core.parser import parse_docx_to_blocks
 from core.judge import rule_based_labels
+from core.llm_labeler_stub import llm_labels
 from core.formatter import apply_formatting
 from core.writer import save_docx
+
+
+VALID_LABEL_MODES = {"rule", "llm", "hybrid"}
 
 
 def ensure_docx_path(path: str) -> str:
@@ -35,12 +38,48 @@ class FormatResult:
     report: Dict[str, Any]
 
 
+
+def _resolve_labels(blocks, doc, label_mode: str) -> Dict[Any, str]:
+    mode = (label_mode or "rule").strip().lower()
+    if mode not in VALID_LABEL_MODES:
+        raise ValueError(f"label_mode must be one of {sorted(VALID_LABEL_MODES)}, got: {label_mode}")
+
+    rule = rule_based_labels(blocks, doc=doc)
+    rule["_source"] = "rule_based"
+
+    if mode == "rule":
+        return rule
+
+    try:
+        llm = llm_labels(blocks)
+        llm["_source"] = "llm"
+    except Exception as e:
+        # 兜底：LLM 不可用时回退，保证主流程可用
+        rule.setdefault("_warnings", [])
+        rule["_warnings"].append(f"LLM labeling failed, fallback to rule-based: {e}")
+        return rule
+
+    if mode == "llm":
+        return llm
+
+    # hybrid: 先用 LLM，再补全缺失 block，保证覆盖率
+    merged = dict(llm)
+    for b in blocks:
+        if b.block_id not in merged:
+            merged[b.block_id] = rule.get(b.block_id, "body")
+    merged["_source"] = "hybrid"
+    return merged
+
+
+
 def format_docx_file(
     input_path: str,
     output_path: str,
     spec_path: str = "specs/default.yaml",
     report_path: Optional[str] = None,
     write_report: bool = True,
+    *,
+    label_mode: str = "rule",
 ) -> FormatResult:
     """
     文件路径版：适合 CLI 或服务端落盘场景。
@@ -50,6 +89,7 @@ def format_docx_file(
     - spec_path: YAML 规范文件
     - report_path: 诊断报告路径；None 则默认与 output 同名 .report.json
     - write_report: 是否写 report.json 到磁盘
+    - label_mode: rule / llm / hybrid
 
     返回：FormatResult(output_path, report_path, report_dict)
     """
@@ -61,12 +101,13 @@ def format_docx_file(
     spec = load_spec(spec_path)
 
     doc, blocks = parse_docx_to_blocks(input_path)
-
-    # 规则标注（你现在已支持 doc=doc 以复用 detect_role 口径）
-    labels = rule_based_labels(blocks, doc=doc)
-    labels["_source"] = "rule_based"
+    labels = _resolve_labels(blocks, doc, label_mode=label_mode)
 
     report = apply_formatting(doc, blocks, labels, spec)
+
+    for w in labels.get("_warnings", []):
+        report.setdefault("warnings", [])
+        report["warnings"].append(w)
 
     save_docx(doc, output_path)
 
@@ -78,12 +119,14 @@ def format_docx_file(
     return FormatResult(output_path=output_path, report_path=report_path, report=report)
 
 
+
 def format_docx_bytes(
     input_bytes: bytes,
     spec_path: str = "specs/default.yaml",
     *,
     filename_hint: str = "input.docx",
     keep_temp_files: bool = False,
+    label_mode: str = "rule",
 ) -> Tuple[bytes, Dict[str, Any]]:
     """
     bytes 版：适合 UI/API（上传文件）场景。
@@ -91,8 +134,8 @@ def format_docx_bytes(
 
     - filename_hint: 仅用于生成更可读的临时文件名
     - keep_temp_files: 调试用；True 则不删除临时目录
+    - label_mode: rule / llm / hybrid
     """
-    # 用 TemporaryDirectory 方便自动清理
     tmpdir_obj = tempfile.TemporaryDirectory(prefix="docx_agent_")
     tmpdir = tmpdir_obj.name
 
@@ -114,6 +157,7 @@ def format_docx_bytes(
             spec_path=spec_path,
             report_path=report_path,
             write_report=True,
+            label_mode=label_mode,
         )
 
         with open(res.output_path, "rb") as f:
@@ -123,7 +167,6 @@ def format_docx_bytes(
 
     finally:
         if keep_temp_files:
-            # 调试时你可以把 tmpdir 打印出来自己去看
             print(f"[debug] temp files kept at: {tmpdir}")
         else:
             tmpdir_obj.cleanup()

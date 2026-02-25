@@ -56,6 +56,12 @@ st.caption("上传 Word 文档（.docx），智能体会进行结构诊断与自
 with st.sidebar:
     st.header("⚙️ 配置")
     spec_path = st.text_input("spec 路径", value="specs/default.yaml")
+    label_mode = st.selectbox(
+        "标签模式",
+        options=["rule", "llm", "hybrid"],
+        index=0,
+        help="rule=纯规则；llm=仅大模型（失败自动回退规则）；hybrid=大模型+规则补全",
+    )
     st.markdown("---")
     st.markdown("**说明**：当前 UI 直接调用本地 Agent（不走 API），适合比赛 Demo。")
 
@@ -81,6 +87,7 @@ with st.spinner("StructuraAgent 正在分析并修复文档..."):
         input_bytes,
         spec_path=spec_path,
         filename_hint=uploaded.name,
+        label_mode=label_mode,
     )
 
 report = agent_res.report
