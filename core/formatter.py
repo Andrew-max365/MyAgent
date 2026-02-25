@@ -10,7 +10,13 @@ from docx.text.paragraph import Paragraph
 
 from .parser import Block
 from .spec import Spec
-from .docx_utils import delete_paragraph, set_run_fonts, is_effectively_blank_paragraph
+from .docx_utils import (
+    copy_run_style,
+    delete_paragraph,
+    is_effectively_blank_paragraph,
+    normalize_mixed_runs,
+    set_run_fonts,
+)
 
 
 # =========================
@@ -136,10 +142,13 @@ def _apply_paragraph_common(p, line_spacing: float, space_before_pt: float, spac
     pf.line_spacing = line_spacing
 
 
-def _apply_runs_font(p, zh_font: str, en_font: str, size_pt: float, bold: bool):
+def _apply_runs_font(p, zh_font: str, en_font: str, size_pt: float, force_bold=None):
+    # 先把中英混合 run 拆开，再逐 run 写入完整字体映射
+    normalize_mixed_runs(p)
     for run in p.runs:
         run.font.size = Pt(size_pt)
-        run.font.bold = bold
+        if force_bold is not None:
+            run.font.bold = bool(force_bold)
         set_run_fonts(run, zh_font=zh_font, en_font=en_font)
 
 
@@ -220,24 +229,47 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
             i += 1
             continue
 
-        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
-        if len(lines) <= 1:
+        # 保留每一行对应的“源 run 样式”（颜色/粗斜体），避免拆段后样式丢失
+        raw_runs = list(p.runs)
+        line_parts = [[]]
+        for src_run in raw_runs:
+            parts = (src_run.text or "").split("\n")
+            for idx, part in enumerate(parts):
+                if part:
+                    line_parts[-1].append((part, src_run))
+                if idx < len(parts) - 1:
+                    line_parts.append([])
+
+        resolved_lines = []
+        for parts in line_parts:
+            line_text = "".join(seg for seg, _ in parts).strip()
+            if not line_text:
+                continue
+            style_run = parts[0][1] if parts else (raw_runs[0] if raw_runs else None)
+            resolved_lines.append((line_text, style_run))
+
+        if len(resolved_lines) <= 1:
             i += 1
             continue
 
-        # 当前段落替换成第一行
+        # 当前段落替换成第一行并继承该行样式
         _clear_paragraph_runs(p)
-        p.add_run(lines[0])
+        first_text, first_style_run = resolved_lines[0]
+        first_run = p.add_run(first_text)
+        if first_style_run is not None:
+            copy_run_style(first_style_run, first_run)
 
-        # 后续行插入为新段落，复制样式
+        # 后续行插入为新段落，复制段落样式与该行首 run 样式
         prev = p
-        for ln in lines[1:]:
+        for ln, style_run in resolved_lines[1:]:
             new_p = _insert_paragraph_after(prev, ln)
             created += 1
             try:
                 new_p.style = p.style
             except Exception:
                 pass
+            if style_run is not None and new_p.runs:
+                copy_run_style(style_run, new_p.runs[0])
 
             if on_new_paragraph is not None:
                 try:
@@ -249,7 +281,7 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
             prev = new_p
 
         # 跳过新插入的段落
-        i += len(lines)
+        i += len(resolved_lines)
     return created
 
 
@@ -440,7 +472,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
                 formatted_counter["body"] += 1
 
-            _apply_runs_font(p, zh_font, en_font, size_pt=body_size, bold=False)
+            _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
 
         elif role in ("h1", "h2", "h3"):
             hc = heading_cfg[role]
@@ -453,7 +485,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             p.paragraph_format.left_indent = Pt(0)
             p.paragraph_format.hanging_indent = Pt(0)
             p.paragraph_format.first_line_indent = Pt(0)
-            _apply_runs_font(p, zh_font, en_font, size_pt=size, bold=bold)
+            _apply_runs_font(p, zh_font, en_font, size_pt=size, force_bold=bold)
             formatted_counter[role] += 1
 
         elif role == "caption":
@@ -467,13 +499,13 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 p.paragraph_format.left_indent = Pt(0)
                 p.paragraph_format.hanging_indent = Pt(0)
                 p.paragraph_format.first_line_indent = Pt(0)
-                _apply_runs_font(p, zh_font, en_font, size_pt=size, bold=bold)
+                _apply_runs_font(p, zh_font, en_font, size_pt=size, force_bold=bold)
             else:
                 _apply_paragraph_common(p, body_line_spacing, body_before, body_after)
                 p.paragraph_format.left_indent = Pt(0)
                 p.paragraph_format.hanging_indent = Pt(0)
                 p.paragraph_format.first_line_indent = Pt(0)
-                _apply_runs_font(p, zh_font, en_font, size_pt=body_size, bold=False)
+                _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
 
             formatted_counter["caption"] += 1
 
@@ -483,7 +515,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             p.paragraph_format.left_indent = Pt(0)
             p.paragraph_format.hanging_indent = Pt(0)
             p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
-            _apply_runs_font(p, zh_font, en_font, size_pt=body_size, bold=False)
+            _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
             formatted_counter["unknown_as_body"] += 1
 
 
