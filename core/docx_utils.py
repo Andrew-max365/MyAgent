@@ -139,6 +139,23 @@ def set_run_fonts(run, zh_font: str, en_font: str):
     rFonts.set(qn("w:cs"), en_font)
 
 
+def iter_all_paragraphs(doc) -> List[Paragraph]:
+    """返回文档中所有段落（含表格单元格与嵌套表格）。"""
+    out: List[Paragraph] = []
+
+    def walk_table(table):
+        for row in table.rows:
+            for cell in row.cells:
+                out.extend(cell.paragraphs)
+                for inner in cell.tables:
+                    walk_table(inner)
+
+    out.extend(doc.paragraphs)
+    for tbl in doc.tables:
+        walk_table(tbl)
+    return out
+
+
 def delete_paragraph(paragraph: Paragraph):
     """Remove paragraph from document (python-docx doesn't provide a public API)."""
     p = paragraph._element
