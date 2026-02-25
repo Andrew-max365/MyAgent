@@ -97,6 +97,7 @@ def run_doc_agent_file(
     spec_path: str = "specs/default.yaml",
     report_path: Optional[str] = None,
     write_report: bool = True,
+    label_mode: str = "rule",
 ) -> AgentResult:
     """
     路径模式：适合 CLI/本地批处理/服务器落盘。
@@ -114,6 +115,7 @@ def run_doc_agent_file(
         spec_path=spec_path,
         report_path=report_path,
         write_report=write_report,
+        label_mode=label_mode,
     )
 
     summary = build_summary(res.report)
@@ -137,6 +139,7 @@ def run_doc_agent_bytes(
     *,
     spec_path: str = "specs/default.yaml",
     filename_hint: str = "input.docx",
+    label_mode: str = "rule",
 ) -> Tuple[bytes, AgentResult]:
     """
     bytes 模式：适合 UI/API（上传文件）场景。
@@ -154,6 +157,7 @@ def run_doc_agent_bytes(
         spec_path=spec_path,
         filename_hint=filename_hint,
         keep_temp_files=False,
+        label_mode=label_mode,
     )
     summary = build_summary(report)
 
@@ -195,6 +199,8 @@ def main():
     parser.add_argument("--report", default=None, help="report.json 输出路径（可选）")
     parser.add_argument("--no-report", action="store_true", help="不写 report.json 文件")
     parser.add_argument("--agent-json", default=None, help="额外输出 agent_result 的 json（便于调试/展示）")
+    parser.add_argument("--label-mode", default="rule", choices=["rule", "llm", "hybrid"],
+                        help="标签模式：rule(规则) / llm(大模型) / hybrid(大模型+规则兜底)")
 
     args = parser.parse_args()
 
@@ -207,6 +213,7 @@ def main():
         spec_path=args.spec,
         report_path=args.report,
         write_report=not args.no_report,
+        label_mode=args.label_mode,
     )
 
     # 保留你喜欢的输出风格 + 增加 Agent 摘要

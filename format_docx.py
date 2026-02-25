@@ -1,18 +1,18 @@
 # format_docx.py
 
-import sys
+import argparse
 from service.format_service import format_docx_file
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: python format_docx.py input.docx output.docx")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Format DOCX with report output")
+    parser.add_argument("input", help="input docx")
+    parser.add_argument("output", help="output docx")
+    parser.add_argument("--label-mode", default="rule", choices=["rule", "llm", "hybrid"],
+                        help="label mode: rule / llm / hybrid")
+    args = parser.parse_args()
 
-    input_path = sys.argv[1]
-    output_path = sys.argv[2]
-
-    result = format_docx_file(input_path, output_path)
+    result = format_docx_file(args.input, args.output, label_mode=args.label_mode)
 
     print(f"✅ Done: {result.output_path}")
     if result.report_path:
