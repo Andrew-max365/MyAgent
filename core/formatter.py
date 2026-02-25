@@ -15,6 +15,7 @@ from .docx_utils import (
     copy_run_style,
     delete_paragraph,
     is_effectively_blank_paragraph,
+    iter_all_paragraphs,
     normalize_mixed_runs,
     set_run_fonts,
 )
@@ -333,7 +334,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
 
     # ====== 角色映射：优先 labels，缺失才 fallback detect_role ======
     # 关键点：用 Paragraph 对象做 key，避免后续删除/插入导致“索引错位”
-    orig_paras = list(doc.paragraphs)
+    orig_paras = iter_all_paragraphs(doc)
     para_by_index = {i: p for i, p in enumerate(orig_paras)}
     label_by_para: Dict[Paragraph, str] = {}
 
@@ -464,7 +465,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
 
     # 4) 套格式
     formatted_counter = Counter()
-    for p in doc.paragraphs:
+    for p in iter_all_paragraphs(doc):
         if is_effectively_blank_paragraph(p):
             continue
 
@@ -588,7 +589,8 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     except Exception:
         report["actions"]["split_body_new_paragraph_roles"] = {}
 
-    report["meta"]["paragraphs_after"] = len(list(doc.paragraphs))
-    report["meta"]["blank_paragraphs_after"] = sum(1 for p in doc.paragraphs if is_effectively_blank_paragraph(p))
+    all_after = iter_all_paragraphs(doc)
+    report["meta"]["paragraphs_after"] = len(all_after)
+    report["meta"]["blank_paragraphs_after"] = sum(1 for p in all_after if is_effectively_blank_paragraph(p))
     report["formatted"]["counts"] = dict(formatted_counter)
     return report
