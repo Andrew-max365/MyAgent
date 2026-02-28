@@ -1,11 +1,14 @@
 # agent/llm_client.py
 # 封装对大模型 API 的调用（使用 openai SDK）
+from __future__ import annotations
+
 import json
+from typing import List
 
 import openai
 
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_S
-from agent.prompt_templates import SYSTEM_PROMPT
+from agent.prompt_templates import SYSTEM_PROMPT, build_user_prompt
 from agent.schema import DocumentStructure
 
 
@@ -33,26 +36,42 @@ class LLMClient:
             timeout=LLM_TIMEOUT_S,
         )
 
-    def analyze_document(self, prompt: str) -> DocumentStructure:
+    def call_raw(self, paragraphs: List[str]) -> str:
         """
-        调用大模型分析文档结构，返回结构化的 DocumentStructure 对象。
+        调用大模型，返回原始 JSON 字符串。
 
-        :param prompt: 由 build_user_prompt() 构造的用户 Prompt
-        :return: DocumentStructure 对象
-        :raises LLMCallError: 调用失败或解析失败时抛出
+        :param paragraphs: 文档段落文本列表
+        :return: 模型输出的原始 JSON 字符串
+        :raises LLMCallError: 调用失败时抛出
         """
         try:
+            user_prompt = build_user_prompt(paragraphs)
             response = self.client.chat.completions.create(
                 model=LLM_MODEL,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": user_prompt},
                 ],
                 # 要求模型以 JSON 格式输出
                 response_format={"type": "json_object"},
             )
-            raw = response.choices[0].message.content
+            return response.choices[0].message.content
+        except Exception as e:
+            raise LLMCallError(f"LLM 调用失败: {e}") from e
+
+    def call_structured(self, paragraphs: List[str]) -> DocumentStructure:
+        """
+        调用大模型并解析为 DocumentStructure 对象。
+
+        :param paragraphs: 文档段落文本列表
+        :return: DocumentStructure 实例
+        :raises LLMCallError: 调用失败或解析失败时抛出
+        """
+        try:
+            raw = self.call_raw(paragraphs)
             data = json.loads(raw)
             return DocumentStructure(**data)
+        except LLMCallError:
+            raise
         except Exception as e:
-            raise LLMCallError(f"LLM call failed: {e}") from e
+            raise LLMCallError(f"LLM 响应解析失败: {e}") from e

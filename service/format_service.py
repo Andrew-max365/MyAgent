@@ -10,7 +10,6 @@ from typing import Any, Dict, Optional, Tuple
 from core.spec import load_spec
 from core.parser import parse_docx_to_blocks
 from core.judge import rule_based_labels
-from core.llm_labeler_stub import llm_labels
 from core.formatter import apply_formatting
 from core.writer import save_docx
 
@@ -51,24 +50,14 @@ def _resolve_labels(blocks, doc, label_mode: str) -> Dict[Any, str]:
         return rule
 
     try:
-        llm = llm_labels(blocks)
-        llm["_source"] = "llm"
+        from agent.mode_router import ModeRouter
+        router = ModeRouter(mode=mode)
+        return router.route(doc, blocks, rule)
     except Exception as e:
         # 兜底：LLM 不可用时回退，保证主流程可用
         rule.setdefault("_warnings", [])
         rule["_warnings"].append(f"LLM labeling failed, fallback to rule-based: {e}")
         return rule
-
-    if mode == "llm":
-        return llm
-
-    # hybrid: 先用 LLM，再补全缺失 block，保证覆盖率
-    merged = dict(llm)
-    for b in blocks:
-        if b.block_id not in merged:
-            merged[b.block_id] = rule.get(b.block_id, "body")
-    merged["_source"] = "hybrid"
-    return merged
 
 
 
