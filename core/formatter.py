@@ -336,7 +336,7 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
             continue
 
         # 保留每一行对应的“源 run 样式”（颜色/粗斜体），避免拆段后样式丢失
-        raw_runs = list(p.runs)
+        raw_runs = list(iter_paragraph_runs(p))
         line_parts = [[]]
         for src_run in raw_runs:
             parts = re.split(r"[\n\r\v]", (src_run.text or ""))
