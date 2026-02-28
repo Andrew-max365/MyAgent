@@ -3,15 +3,20 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
+import os
+import secrets
 import zipfile
 from dataclasses import asdict
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent.Structura_agent import run_doc_agent_bytes
-from config import LLM_MODE
+from config import LLM_MODE, SERVER_API_KEY
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Structura DOCX Agent API",
@@ -20,12 +25,27 @@ app = FastAPI(
 )
 
 
+def _verify_api_key(x_api_key: str = Header(default="")) -> None:
+    """若 SERVER_API_KEY 已配置，则验证请求头中的 X-API-Key。"""
+    if SERVER_API_KEY and not secrets.compare_digest(x_api_key, SERVER_API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def _validate_spec_path(spec_path: str) -> None:
+    """拒绝能逃出 specs/ 目录的路径，防止路径穿越攻击。"""
+    if os.path.isabs(spec_path):
+        raise HTTPException(status_code=400, detail="spec_path must be a relative path within specs/")
+    normalized = os.path.normpath(spec_path)
+    if not (normalized.startswith("specs" + os.sep)):
+        raise HTTPException(status_code=400, detail="spec_path must point within the specs/ directory")
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/v1/agent/format")
+@app.post("/v1/agent/format", dependencies=[Depends(_verify_api_key)])
 async def format_docx_json(
     file: UploadFile = File(..., description="待排版的 .docx 文件"),
     spec_path: str = Form("specs/default.yaml"),
@@ -33,6 +53,8 @@ async def format_docx_json(
 ):
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only .docx files are supported")
+
+    _validate_spec_path(spec_path)
 
     input_bytes = await file.read()
     if not input_bytes:
@@ -46,7 +68,8 @@ async def format_docx_json(
             label_mode=label_mode,
         )
     except Exception as e:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"formatting failed: {e}") from e
+        logger.error("format_docx_json failed for %r: %s", file.filename, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
     return JSONResponse(
         {
@@ -59,7 +82,7 @@ async def format_docx_json(
     )
 
 
-@app.post("/v1/agent/format/bundle")
+@app.post("/v1/agent/format/bundle", dependencies=[Depends(_verify_api_key)])
 async def format_docx_bundle(
     file: UploadFile = File(..., description="待排版的 .docx 文件"),
     spec_path: str = Form("specs/default.yaml"),
@@ -67,6 +90,8 @@ async def format_docx_bundle(
 ):
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only .docx files are supported")
+
+    _validate_spec_path(spec_path)
 
     input_bytes = await file.read()
     if not input_bytes:
@@ -80,7 +105,8 @@ async def format_docx_bundle(
             label_mode=label_mode,
         )
     except Exception as e:  # pragma: no cover
-        raise HTTPException(status_code=500, detail=f"formatting failed: {e}") from e
+        logger.error("format_docx_bundle failed for %r: %s", file.filename, e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
     payload = io.BytesIO()
     with zipfile.ZipFile(payload, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:

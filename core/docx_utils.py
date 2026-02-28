@@ -1,4 +1,5 @@
 # core/docx_utils.py
+import string
 from copy import deepcopy
 from typing import Iterator, List, Optional, Tuple, Union
 
@@ -10,7 +11,7 @@ from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 
 
-ASCII_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+ASCII_CHARS = set(string.ascii_letters + string.digits)
 
 
 def is_mostly_ascii(s: str) -> bool:

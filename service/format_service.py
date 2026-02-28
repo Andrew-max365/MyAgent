@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
@@ -55,6 +56,10 @@ def _resolve_labels(blocks, doc, label_mode: str) -> Dict[Any, str]:
         router = ModeRouter(mode=mode)
         return router.route(doc, blocks, rule)
     except Exception as e:
+        warnings.warn(
+            f"[format_service] LLM labeling failed, falling back to rule-based: {e}",
+            stacklevel=2,
+        )
         # 兜底：LLM 不可用时回退，保证主流程可用
         rule.setdefault("_warnings", [])
         rule["_warnings"].append(f"LLM labeling failed, fallback to rule-based: {e}")
