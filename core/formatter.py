@@ -49,7 +49,7 @@ ROLE_LABELS_FALLBACK_TO_RULE = {"blank", "unknown"}
 # 正文层级列表标记（不是章节标题，而是段落内编号列表项）
 # 注意：RE_SUBTITLE_CN 已捕获 （一） 形式（中文括号数字），这里只捕获阿拉伯数字括号/括号后缀/圈数字/英文字母
 RE_BODY_LIST_PAREN_ARABIC = re.compile(r"^\s*（\d+）")          # （1） （2）
-RE_BODY_LIST_RPAREN = re.compile(r"^\s*\d+[)）]\s")             # 1) 或 1）后接空格
+RE_BODY_LIST_RPAREN = re.compile(r"^\s*\d+[)）]")               # 1) 或 1）（不强制要求后接空格，兼容中文文档无空格写法）
 RE_BODY_LIST_ENCLOSED = re.compile(                              # ①②…⑳
     r"^\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]"
 )

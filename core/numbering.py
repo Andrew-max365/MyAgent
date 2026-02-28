@@ -17,7 +17,7 @@ from docx.text.paragraph import Paragraph
 # ─── List pattern detection ───────────────────────────────────────────────────
 
 _RE_PAREN_ARABIC = re.compile(r"^(\s*（)(\d+)(）)")           # （1）
-_RE_RPAREN       = re.compile(r"^(\s*)(\d+)([)）])(\s)")      # 1) or 1）<space>
+_RE_RPAREN       = re.compile(r"^(\s*)(\d+)([)）])(\s?)")     # 1) or 1）, optional space
 _RE_NUM_DOT      = re.compile(r"^(\s*)(\d+)(\. )")             # 1. text
 _RE_ENCLOSED     = re.compile(
     r"^\s*([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])"
@@ -39,6 +39,10 @@ LIST_FMTS = ("paren_arabic", "rparen", "num_dot", "enclosed", "alpha_lower", "al
 _STRUCTURAL_ROLES = frozenset({
     "h1", "h2", "h3", "caption", "abstract", "keyword", "reference", "footer"
 })
+
+# Decimal-style formats that may be freely mixed within one list group when ordinals
+# are sequential (e.g. Chinese docs often open with "（1）" and continue with "2）").
+_DECIMAL_FMTS = frozenset({"paren_arabic", "rparen"})
 
 # Map format key → (w:numFmt value, w:lvlText value)
 _FMT_TO_WORD: Dict[str, Tuple[str, str]] = {
@@ -312,15 +316,32 @@ def convert_text_lists(
     *converted_paragraphs* is the list of paragraphs that received ``numPr``.
     """
     # Group consecutive paragraphs that carry a recognised list prefix.
-    # A group resets whenever: blank para, structural role (heading/caption/…),
-    # paragraph already carrying real numPr, no detectable prefix, or a format change.
+    # A group resets whenever: parent container changes (different table cell or body),
+    # blank para, structural role (heading/caption/…), paragraph already carrying real
+    # numPr, no detectable prefix, or an incompatible format change.
     # "body" / "unknown" / "list_item" paragraphs are all eligible so that
     # groups where the LLM mis-labelled some items still convert as a whole.
+    #
+    # Format tolerance: paren_arabic ("（1）") and rparen ("2）") are treated as the
+    # same decimal list when ordinals are consecutive.  This handles the common Chinese
+    # document pattern where the first item uses full-width opening and closing
+    # parentheses while subsequent items use only the right parenthesis.
     groups: List[List[Tuple[Paragraph, str, int, int]]] = []
     current: List[Tuple[Paragraph, str, int, int]] = []
     current_fmt: Optional[str] = None
+    current_container = None  # track paragraph parent element for cell-boundary detection
 
     for p in paragraphs:
+        # ── Container boundary: break group when crossing into a different parent
+        # element (e.g. from one table cell to another, or body ↔ cell).
+        p_container = p._p.getparent()
+        if p_container is not current_container:
+            if current:
+                groups.append(current)
+                current = []
+                current_fmt = None
+            current_container = p_container
+
         if is_blank_fn(p):
             if current:
                 groups.append(current)
@@ -357,13 +378,23 @@ def convert_text_lists(
             continue
 
         fmt, ordinal, prefix_len = result
-        if fmt != current_fmt:
+        # Determine whether this item continues the current group.
+        # Normally the format must match exactly.  As a special case, paren_arabic and
+        # rparen are treated as compatible when ordinals are consecutive, allowing
+        # "（1）first" followed by "2）second" to form a single list group.
+        _sequential = (
+            current
+            and fmt in _DECIMAL_FMTS
+            and current_fmt in _DECIMAL_FMTS
+            and ordinal == current[-1][2] + 1
+        )
+        if fmt == current_fmt or _sequential:
+            current.append((p, fmt, ordinal, prefix_len))
+        else:
             if current:
                 groups.append(current)
             current = [(p, fmt, ordinal, prefix_len)]
             current_fmt = fmt
-        else:
-            current.append((p, fmt, ordinal, prefix_len))
 
     if current:
         groups.append(current)
