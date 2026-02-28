@@ -1,5 +1,6 @@
 # core/formatter.py
 import re
+from itertools import groupby
 from typing import Dict, List, Set
 from collections import Counter
 
@@ -20,7 +21,13 @@ from .docx_utils import (
     normalize_mixed_runs,
     set_run_fonts,
 )
-from .numbering import convert_text_lists
+from .numbering import (
+    convert_text_lists,
+    detect_text_list_prefix,
+    create_list_num_id,
+    apply_numpr,
+    strip_list_text_prefix,
+)
 
 
 # =========================
@@ -672,8 +679,41 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
             formatted_counter["unknown_as_body"] += 1
 
-    # 5) 文本编号 → 真实 Word 列表（numPr）转换
+    # 4.5) LLM 直接驱动的 list_item 编号转换（绕开 min_run_len 和时序限制）
+    # 遍历 blocks，找出被 LLM 标注为 list_item 的段落，直接转换为 Word numPr
+    # 不受 min_run_len 限制，单条也转换；按格式分组、每组独立 num_id
     convert_text_nums = bool(list_cfg.get("convert_text_numbers", True))
+    if convert_text_nums:
+        _num_left_twips = int(list_cfg.get("num_left_twips", 720))
+        _num_hanging_twips = int(list_cfg.get("num_hanging_twips", 360))
+
+        llm_driven_items = []
+        for b in blocks:
+            if labels.get(b.block_id) == "list_item":
+                p = para_by_index.get(b.paragraph_index)
+                if p is None or is_list_paragraph(p):
+                    # Skip paragraphs that already carry real numPr (already a
+                    # Word list), so we don't create a duplicate numbering def
+                    continue
+                result = detect_text_list_prefix(p.text or "")
+                if result:
+                    fmt, _, prefix_len = result
+                    llm_driven_items.append((p, fmt, prefix_len))
+
+        llm_driven_items.sort(key=lambda x: x[1])
+        llm_direct_converted = 0
+        for fmt, grp in groupby(llm_driven_items, key=lambda x: x[1]):
+            grp = list(grp)
+            num_id = create_list_num_id(doc, fmt, _num_left_twips, _num_hanging_twips)
+            for p, _fmt, prefix_len in grp:
+                apply_numpr(p, num_id)
+                strip_list_text_prefix(p, prefix_len)
+                llm_direct_converted += 1
+    else:
+        llm_direct_converted = 0
+    report["actions"]["llm_direct_list_converted"] = llm_direct_converted
+
+    # 5) 文本编号 → 真实 Word 列表（numPr）转换
     if convert_text_nums:
         num_left_twips = int(list_cfg.get("num_left_twips", 720))
         num_hanging_twips = int(list_cfg.get("num_hanging_twips", 360))

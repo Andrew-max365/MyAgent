@@ -314,7 +314,7 @@ def _make_doc_blocks_labels(role_texts):
 
 
 def test_apply_formatting_converts_text_lists():
-    """apply_formatting step 5 must convert text-based list items to real numPr."""
+    """apply_formatting step 4.5 must convert LLM-labeled list items to real numPr."""
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
 
     doc, blocks, labels = _make_doc_blocks_labels([
@@ -325,8 +325,12 @@ def test_apply_formatting_converts_text_lists():
 
     report = apply_formatting(doc, blocks, labels, spec)
 
-    # Report should record the conversion count
-    assert report["actions"]["text_list_converted_to_numpr"] == 3
+    # Report should record the conversion count (LLM-direct path)
+    total_converted = (
+        report["actions"]["llm_direct_list_converted"]
+        + report["actions"]["text_list_converted_to_numpr"]
+    )
+    assert total_converted == 3
 
     # All three paragraphs should have real numPr
     for p in iter_all_paragraphs(doc):
@@ -494,7 +498,11 @@ def test_apply_formatting_converts_num_dot_lists():
     ])
 
     report = apply_formatting(doc, blocks, labels, spec)
-    assert report["actions"]["text_list_converted_to_numpr"] == 3
+    total_converted = (
+        report["actions"]["llm_direct_list_converted"]
+        + report["actions"]["text_list_converted_to_numpr"]
+    )
+    assert total_converted == 3
 
     for p in iter_all_paragraphs(doc):
         if not is_effectively_blank_paragraph(p):

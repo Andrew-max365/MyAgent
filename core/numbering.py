@@ -277,7 +277,7 @@ def convert_text_lists(
     get_role,
     is_list_paragraph_fn,
     is_blank_fn,
-    min_run_len: int = 2,
+    min_run_len: int = 1,
     left_twips: int = 720,
     hanging_twips: int = 360,
 ) -> int:
@@ -292,6 +292,11 @@ def convert_text_lists(
     1. Creates a Word numbering definition (abstractNum + num).
     2. Applies ``w:numPr`` to every paragraph in the run.
     3. Strips the text prefix from each paragraph.
+
+    *min_run_len* controls the minimum consecutive run length required before
+    conversion.  The default is 1, meaning even a single isolated list item
+    will be converted.  Set to 2 or higher to require at least that many
+    consecutive items before converting.
 
     Returns the total number of paragraphs converted.
     """
