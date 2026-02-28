@@ -64,3 +64,21 @@ def test_field_alias_canonicalization():
     assert normalized["paragraphs"][0]["confidence"] == 0.0
     assert normalized["paragraphs"][1]["paragraph_type"] == "body"
     assert normalized["paragraphs"][1]["confidence"] == 0.8
+
+
+def test_confidence_canonicalization_accepts_string_percent_and_clamps():
+    payload = {
+        "doc_language": "zh",
+        "paragraphs": [
+            {"index": 0, "text_preview": "a", "paragraph_type": "body", "confidence": "0.75"},
+            {"index": 1, "text_preview": "b", "paragraph_type": "body", "confidence": "85%"},
+            {"index": 2, "text_preview": "c", "paragraph_type": "body", "confidence": 2},
+            {"index": 3, "text_preview": "d", "paragraph_type": "body", "confidence": -0.2},
+            {"index": 4, "text_preview": "e", "paragraph_type": "body", "confidence": "bad"},
+        ],
+    }
+
+    normalized = LLMClient._canonicalize_structure_payload(payload)
+    confidences = [p["confidence"] for p in normalized["paragraphs"]]
+
+    assert confidences == [0.75, 0.85, 0.02, 0.0, 0.0]

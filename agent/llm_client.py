@@ -155,6 +155,32 @@ class LLMClient:
             or "unknown"
         )
 
+    @staticmethod
+    def _normalize_confidence(raw_confidence: Any) -> float:
+        """规范化 confidence 到 [0, 1] 区间，兼容数字、字符串与百分比字符串。"""
+        value: float
+        if isinstance(raw_confidence, (int, float)) and not isinstance(raw_confidence, bool):
+            value = float(raw_confidence)
+        elif isinstance(raw_confidence, str):
+            text = raw_confidence.strip()
+            if not text:
+                return 0.0
+            is_percent = text.endswith("%")
+            if is_percent:
+                text = text[:-1].strip()
+            try:
+                value = float(text)
+            except ValueError:
+                return 0.0
+            if is_percent:
+                value /= 100.0
+        else:
+            return 0.0
+
+        if 1.0 < value <= 100.0:
+            value /= 100.0
+        return max(0.0, min(1.0, value))
+
     @classmethod
     def _canonicalize_structure_payload(cls, data: Any) -> Any:
         """规范化 LLM payload 的 paragraph_type，并在缺失时补 total_paragraphs。"""
@@ -175,8 +201,7 @@ class LLMClient:
                     p["index"] = p["paragraph_index"]
                 if "text_preview" not in p and isinstance(p.get("text"), str):
                     p["text_preview"] = p["text"]
-                if "confidence" not in p:
-                    p["confidence"] = 0.0
+                p["confidence"] = cls._normalize_confidence(p.get("confidence"))
                 normalized_paragraphs.append(p)
             payload["paragraphs"] = normalized_paragraphs
             payload.setdefault("total_paragraphs", len(normalized_paragraphs))
