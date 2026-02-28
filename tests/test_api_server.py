@@ -80,3 +80,23 @@ def test_format_docx_json_endpoint_uses_config_default_label_mode(client, monkey
 
     assert resp.status_code == 200
     assert captured["label_mode"] == LLM_MODE
+
+
+@pytest.mark.parametrize("bad_path", [
+    "../../etc/passwd",
+    "/etc/passwd",
+    "specs/../../../etc/passwd",
+    "../secrets.yaml",
+])
+def test_format_rejects_traversal_spec_path(client, bad_path):
+    sample = Path("tests/samples/sample.docx")
+    with sample.open("rb") as f:
+        data = f.read()
+
+    for endpoint in ["/v1/agent/format", "/v1/agent/format/bundle"]:
+        resp = client.post(
+            endpoint,
+            files={"file": ("sample.docx", data, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+            data={"label_mode": "rule", "spec_path": bad_path},
+        )
+        assert resp.status_code == 400, f"{endpoint} should reject spec_path={bad_path!r}"

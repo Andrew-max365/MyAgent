@@ -111,8 +111,11 @@ def _validate_and_fill_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_spec(path: str) -> Spec:
-    with open(path, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Spec file not found: {path!r}")
 
     if not isinstance(data, dict):
         raise ValueError("spec file must be a YAML mapping at top-level")
