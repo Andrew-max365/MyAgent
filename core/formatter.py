@@ -307,10 +307,10 @@ def _delete_blanks_after_roles(doc, roles: Set[str], role_getter=None) -> int:
 def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph=None) -> int:
     """
     关键修复：
-    把正文段落里的 '\n'（通常是 Shift+Enter 软回车）拆成多个段落，
-    这样每一条（比如 \n1. \n2.）都能获得“首行缩进”。
+    把正文/列表段落里的 '\n'（通常是 Shift+Enter 软回车）拆成多个段落，
+    这样每一条（比如 \n1. \n2.）都能被后续编号转换识别。
 
-    - role_getter: 用于判断某段是否为 body（默认 detect_role）。
+    - role_getter: 用于判断某段是否可拆分（默认 detect_role）。
     - on_new_paragraph(parent, child): 可选回调；当从 parent 拆出 child 时调用。
       用于“继承标签/元数据”等（例如：child 的 role 继承 parent）。
 
@@ -325,9 +325,9 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
         if is_effectively_blank_paragraph(p):
             continue
 
-        # 只拆正文；标题/题注不拆，避免破坏结构
+        # 只拆正文/列表/unknown；标题/题注不拆，避免破坏结构
         role = role_getter(p)
-        if role != "body":
+        if role not in {"body", "list_item", "unknown"}:
             continue
 
         text = p.text or ""
@@ -531,7 +531,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     for p in orig_paras:
         if is_effectively_blank_paragraph(p):
             continue
-        if get_role(p) != "body":
+        if get_role(p) not in {"body", "list_item", "unknown"}:
             continue
         t = p.text or ""
         if "\n" not in t:
@@ -704,6 +704,11 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             min_run_len=min_run_len,
             left_twips=num_left_twips,
             hanging_twips=num_hanging_twips,
+            zh_font=zh_font,
+            en_font=en_font,
+            size_pt=list_size,
+            bold=list_bold,
+            italic=list_italic,
         )
         # Sync font/size for paragraphs converted in this step
         for p in step5_converted_paras:
