@@ -1,6 +1,7 @@
 # format_docx.py
 
 import argparse
+from config import LLM_MODE
 from service.format_service import format_docx_file
 
 
@@ -13,7 +14,7 @@ def main():
     parser.add_argument("--no-report", action="store_true", help="disable report file writing")
     parser.add_argument(
         "--label-mode",
-        default="rule",
+        default=LLM_MODE,
         choices=["rule", "llm", "hybrid"],
         help="label mode: rule / llm / hybrid",
     )

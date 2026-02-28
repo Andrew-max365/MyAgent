@@ -22,6 +22,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
+from config import LLM_MODE
 from service.format_service import format_docx_file, format_docx_bytes
 
 
@@ -97,7 +98,7 @@ def run_doc_agent_file(
     spec_path: str = "specs/default.yaml",
     report_path: Optional[str] = None,
     write_report: bool = True,
-    label_mode: str = "rule",
+    label_mode: str = LLM_MODE,
 ) -> AgentResult:
     """
     路径模式：适合 CLI/本地批处理/服务器落盘。
@@ -139,7 +140,7 @@ def run_doc_agent_bytes(
     *,
     spec_path: str = "specs/default.yaml",
     filename_hint: str = "input.docx",
-    label_mode: str = "rule",
+    label_mode: str = LLM_MODE,
 ) -> Tuple[bytes, AgentResult]:
     """
     bytes 模式：适合 UI/API（上传文件）场景。
@@ -199,7 +200,7 @@ def main():
     parser.add_argument("--report", default=None, help="report.json 输出路径（可选）")
     parser.add_argument("--no-report", action="store_true", help="不写 report.json 文件")
     parser.add_argument("--agent-json", default=None, help="额外输出 agent_result 的 json（便于调试/展示）")
-    parser.add_argument("--label-mode", default="rule", choices=["rule", "llm", "hybrid"],
+    parser.add_argument("--label-mode", default=LLM_MODE, choices=["rule", "llm", "hybrid"],
                         help="标签模式：rule(规则) / llm(大模型) / hybrid(大模型+规则兜底)")
 
     args = parser.parse_args()

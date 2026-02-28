@@ -7,6 +7,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
+from config import LLM_MODE
 from core.spec import load_spec
 from core.parser import parse_docx_to_blocks
 from core.judge import rule_based_labels
@@ -68,7 +69,7 @@ def format_docx_file(
     report_path: Optional[str] = None,
     write_report: bool = True,
     *,
-    label_mode: str = "rule",
+    label_mode: str = LLM_MODE,
 ) -> FormatResult:
     """
     文件路径版：适合 CLI 或服务端落盘场景。
@@ -115,7 +116,7 @@ def format_docx_bytes(
     *,
     filename_hint: str = "input.docx",
     keep_temp_files: bool = False,
-    label_mode: str = "rule",
+    label_mode: str = LLM_MODE,
 ) -> Tuple[bytes, Dict[str, Any]]:
     """
     bytes 版：适合 UI/API（上传文件）场景。

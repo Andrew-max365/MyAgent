@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 # ✅ 用 Agent 层（更符合比赛叙事：Perception→Reasoning→Action→Explanation）
 # 你之前运行的是 python -m agent.Structura_agent ...
 from agent.Structura_agent import run_doc_agent_bytes
+from config import LLM_MODE
 
 
 def _safe_get(d: Dict[str, Any], *keys: str, default=None):
@@ -59,7 +60,7 @@ with st.sidebar:
     label_mode = st.selectbox(
         "标签模式",
         options=["rule", "llm", "hybrid"],
-        index=0,
+        index=["rule", "llm", "hybrid"].index(LLM_MODE) if LLM_MODE in {"rule", "llm", "hybrid"} else 2,
         help="rule=纯规则；llm=仅大模型（失败自动回退规则）；hybrid=大模型+规则补全",
     )
     st.markdown("---")
