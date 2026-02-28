@@ -33,6 +33,9 @@ RE_CAPTION = re.compile(
 
 RE_CN_ENUM = re.compile(r"^\s*[一二三四五六七八九十]+、")
 RE_NUM_DOT = re.compile(r"^\s*\d+(\.\d+){0,3}\s+")
+RE_ABSTRACT = re.compile(r"^\s*(摘要|abstract)\s*[:：]?\s*", re.IGNORECASE)
+RE_KEYWORD = re.compile(r"^\s*(关键词|关键字|keywords?)\s*[:：]?\s*", re.IGNORECASE)
+RE_REFERENCE = re.compile(r"^\s*(参考文献|references?|bibliography)\s*$", re.IGNORECASE)
 
 # 段内多行结构（避免误判标题）
 RE_MULTILINE_NUM = re.compile(r"\n\s*\d+(\.\d+)*\s+")
@@ -111,8 +114,19 @@ def detect_role(paragraph) -> str:
         return "h2"
     if "heading 3" in style_name or "标题 3" in style_name:
         return "h3"
+    if "footer" in style_name or "页脚" in style_name:
+        return "footer"
 
     t = text.strip()
+
+    if RE_ABSTRACT.match(t):
+        return "abstract"
+    if RE_KEYWORD.match(t):
+        return "keyword"
+    if RE_REFERENCE.match(t):
+        return "reference"
+    if is_list_paragraph(paragraph):
+        return "list_item"
 
     if RE_CAPTION.match(t):
         return "caption"
@@ -351,7 +365,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
 
     for b in blocks:
         role = labels.get(b.block_id)
-        if not role or role == "blank":
+        if not role or role in ("blank", "unknown"):
             continue
         p = para_by_index.get(b.paragraph_index)
         if p is not None:

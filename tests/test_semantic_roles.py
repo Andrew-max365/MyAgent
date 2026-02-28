@@ -12,7 +12,7 @@ from docx.shared import Pt
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from core.spec import load_spec
-from core.formatter import apply_formatting
+from core.formatter import apply_formatting, detect_role
 
 
 SPECS_DIR = Path(__file__).resolve().parents[1] / "specs"
@@ -85,3 +85,32 @@ def test_abstract_italic_in_default_spec():
     """Default spec abstract should be italic to visually distinguish it from body."""
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
     assert spec.raw["abstract"]["italic"] is True
+
+
+def test_detect_role_semantic_text_and_list_item():
+    doc = Document()
+    p_abs = doc.add_paragraph("摘要：这是摘要内容。")
+    p_kw = doc.add_paragraph("关键词：测试；排版")
+    p_ref = doc.add_paragraph("参考文献")
+    p_list = doc.add_paragraph("第一条")
+
+    num_pr = p_list._p.get_or_add_pPr().get_or_add_numPr()
+    num_pr.get_or_add_ilvl().val = 0
+    num_pr.get_or_add_numId().val = 1
+
+    assert detect_role(p_abs) == "abstract"
+    assert detect_role(p_kw) == "keyword"
+    assert detect_role(p_ref) == "reference"
+    assert detect_role(p_list) == "list_item"
+
+
+def test_unknown_label_falls_back_to_semantic_detect_role():
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    role_texts = [("unknown", "摘要：这里是摘要内容。")]
+    doc, blocks, labels = _make_doc_with_roles(role_texts)
+
+    report = apply_formatting(doc, blocks, labels, spec)
+    counts = report["formatted"]["counts"]
+
+    assert counts.get("abstract", 0) == 1
+    assert counts.get("unknown_as_body", 0) == 0
