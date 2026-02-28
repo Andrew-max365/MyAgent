@@ -152,6 +152,7 @@ def _build_abstractNum(
     size_pt: Optional[float] = None,
     bold: Optional[bool] = None,
     italic: Optional[bool] = None,
+    start_ordinal: int = 1,
 ):
     """Build a ``w:abstractNum`` XML element for a single-level list."""
     num_fmt_val, lvl_text_val = _FMT_TO_WORD[fmt]
@@ -167,7 +168,8 @@ def _build_abstractNum(
     lvl.set(qn("w:ilvl"), "0")
 
     start = OxmlElement("w:start")
-    start.set(qn("w:val"), "1")
+    # Word requires w:start >= 1; clamp silently to match schema expectations.
+    start.set(qn("w:val"), str(max(1, start_ordinal)))
     lvl.append(start)
 
     numFmt = OxmlElement("w:numFmt")
@@ -261,10 +263,16 @@ def create_list_num_id(
     size_pt: Optional[float] = None,
     bold: Optional[bool] = None,
     italic: Optional[bool] = None,
+    start_ordinal: int = 1,
 ) -> int:
     """
     Add a new single-level numbered list definition to the document's numbering
     part for the given ``fmt`` (one of :data:`LIST_FMTS`).
+
+    ``start_ordinal`` sets the ``w:start`` value of the numbering level.  For
+    list groups that begin mid-sequence (e.g. the second item in a different
+    table cell), pass the ordinal of the first item so that Word renders the
+    correct number (e.g. ``2)`` instead of ``1)``).
 
     Returns the ``w:numId`` value that should be used in ``w:numPr``.
     """
@@ -281,6 +289,7 @@ def create_list_num_id(
         size_pt=size_pt,
         bold=bold,
         italic=italic,
+        start_ordinal=start_ordinal,
     )
     _insert_before_first_num(nelem, abs_num)
 
@@ -476,6 +485,7 @@ def convert_text_lists(
         if len(group) < min_run_len:
             continue
         fmt = group[0][1]
+        start_ordinal = group[0][2]
         num_id = create_list_num_id(
             doc,
             fmt,
@@ -486,6 +496,7 @@ def convert_text_lists(
             size_pt=size_pt,
             bold=bold,
             italic=italic,
+            start_ordinal=start_ordinal,
         )
         for p, _fmt, _ord, prefix_len in group:
             apply_numpr(p, num_id)

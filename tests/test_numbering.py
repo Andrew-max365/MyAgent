@@ -1058,6 +1058,130 @@ def test_apply_formatting_converts_all_table_linebreak_number_items():
         assert not re.match(r"^\s*\d+[)）]", para.text), f"Prefix not stripped: {para.text!r}"
 
 
+# ─── 18. items in separate rows/cells each get the correct start ordinal ──────
+
+def _get_abstractnum_elem(doc, num_id_str):
+    """Return the ``w:abstractNum`` element linked to *num_id_str*, or ``None``."""
+    from core.numbering import _numbering_element
+    nelem = _numbering_element(doc)
+    abs_id_str = None
+    for child in nelem:
+        if child.tag == qn("w:num") and child.get(qn("w:numId")) == num_id_str:
+            ref = child.find(qn("w:abstractNumId"))
+            if ref is not None:
+                abs_id_str = ref.get(qn("w:val"))
+            break
+    if abs_id_str is None:
+        return None
+    for child in nelem:
+        if child.tag == qn("w:abstractNum") and child.get(qn("w:abstractNumId")) == abs_id_str:
+            return child
+    return None
+
+
+def _get_abstractnum_start(doc, num_id_str):
+    """Return the ``w:start`` integer for the abstractNum linked to *num_id_str*."""
+    abs_node = _get_abstractnum_elem(doc, num_id_str)
+    if abs_node is None:
+        return None
+    lvl = abs_node.find(qn("w:lvl"))
+    if lvl is None:
+        return None
+    start_el = lvl.find(qn("w:start"))
+    if start_el is None:
+        return None
+    return int(start_el.get(qn("w:val")))
+
+
+def test_table_items_in_separate_rows_get_correct_start_ordinal():
+    """
+    Regression: when 1）/2）/3） each live in their own table cell (different rows),
+    each gets a separate numId.  The numId for item N must have w:start=N so that
+    Word renders them as 1), 2), 3) respectively – not all as 1).
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=3, cols=1)
+    for i, row in enumerate(table.rows):
+        row.cells[0].paragraphs[0].text = f"{i + 1}）第{i + 1}项内容"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, f"Expected all 3 items converted, got {len(list_paras)}"
+
+    # Each item must use a distinct numId (different cells → different groups)
+    num_id_vals = []
+    for p in list_paras:
+        ppr = p._p.pPr
+        numPr = ppr.find(qn("w:numPr"))
+        num_id_vals.append(numPr.find(qn("w:numId")).get(qn("w:val")))
+    assert len(set(num_id_vals)) == 3, (
+        f"Each item in a separate cell must have its own numId, got {num_id_vals}"
+    )
+
+    # The w:start of each numId's abstractNum must equal the item ordinal (1, 2, 3)
+    for expected_start, num_id_str in zip([1, 2, 3], num_id_vals):
+        actual_start = _get_abstractnum_start(doc, num_id_str)
+        assert actual_start == expected_start, (
+            f"numId {num_id_str}: expected w:start={expected_start}, got {actual_start}. "
+            f"Items in different cells must use the correct start ordinal so Word renders "
+            f"them as 1), 2), 3) instead of all as 1)."
+        )
+
+
+def test_table_items_in_separate_rows_times_new_roman_font():
+    """
+    Items in separate table cells converted to numPr must have Times New Roman
+    applied to their list-marker glyph (abstractNum lvl/rPr/rFonts).
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    # default.yaml has fonts.en = "Times New Roman"
+
+    doc = Document()
+    table = doc.add_table(rows=3, cols=1)
+    for i, row in enumerate(table.rows):
+        row.cells[0].paragraphs[0].text = f"{i + 1}）内容{i + 1}"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, f"Expected 3 converted list items, got {len(list_paras)}"
+
+    for p in list_paras:
+        ppr = p._p.pPr
+        numPr = ppr.find(qn("w:numPr"))
+        num_id_str = numPr.find(qn("w:numId")).get(qn("w:val"))
+
+        abs_node = _get_abstractnum_elem(doc, num_id_str)
+        assert abs_node is not None, f"No abstractNum found for numId {num_id_str}"
+        lvl = abs_node.find(qn("w:lvl"))
+        rPr = lvl.find(qn("w:rPr"))
+        abs_id = abs_node.get(qn("w:abstractNumId"))
+        assert rPr is not None, f"abstractNum {abs_id} lvl has no rPr"
+        rFonts = rPr.find(qn("w:rFonts"))
+        assert rFonts is not None, f"abstractNum {abs_id} lvl rPr has no rFonts"
+        assert rFonts.get(qn("w:ascii")) == "Times New Roman", (
+            f"Expected Times New Roman for w:ascii on abstractNum {abs_id}, "
+            f"got {rFonts.get(qn('w:ascii'))!r}"
+        )
+
+
 def test_create_list_num_id_writes_lvl_rpr_font_settings():
     """Numbering definition should carry lvl/rPr so list marker font follows spec."""
     doc = Document()
@@ -1127,3 +1251,75 @@ def test_apply_formatting_converts_table_carriage_return_number_items():
     for para in cell_paras:
         assert _is_list_p(para), f"Expected numPr on {para.text!r}"
         assert not re.match(r"^\s*\d+[)）]", para.text), f"Prefix not stripped: {para.text!r}"
+
+
+# ─── 19. min_run_len default = 1: items in separate rows always converted ─────
+
+def test_spec_default_min_run_len_is_1():
+    """_validate_and_fill_defaults must set min_run_len=1 when not specified."""
+    from core.spec import _validate_and_fill_defaults
+    raw = {
+        "fonts": {"zh": "宋体", "en": "Times New Roman"},
+        "body": {
+            "font_size_pt": 12, "line_spacing": 1.5,
+            "space_before_pt": 0, "space_after_pt": 0, "first_line_chars": 2,
+        },
+        "heading": {
+            "h1": {"font_size_pt": 16, "bold": True, "space_before_pt": 12, "space_after_pt": 6},
+            "h2": {"font_size_pt": 14, "bold": True, "space_before_pt": 10, "space_after_pt": 4},
+            "h3": {"font_size_pt": 12, "bold": True, "space_before_pt": 8,  "space_after_pt": 2},
+        },
+    }
+    filled = _validate_and_fill_defaults(raw)
+    assert filled["list_item"]["min_run_len"] == 1, (
+        "Default min_run_len must be 1 so items in separate table cells are converted"
+    )
+
+
+def test_table_separate_rows_no_explicit_min_run_len():
+    """
+    Regression: items 1）/2）/3） each in their own table row must ALL get numPr
+    even when the spec does not explicitly set min_run_len (relies on the default=1).
+    """
+    from core.spec import Spec, _validate_and_fill_defaults
+    # Build a minimal spec without a min_run_len key under list_item
+    raw = {
+        "fonts": {"zh": "宋体", "en": "Times New Roman"},
+        "body": {
+            "font_size_pt": 12, "line_spacing": 1.5,
+            "space_before_pt": 0, "space_after_pt": 0, "first_line_chars": 2,
+        },
+        "heading": {
+            "h1": {"font_size_pt": 16, "bold": True, "space_before_pt": 12, "space_after_pt": 6},
+            "h2": {"font_size_pt": 14, "bold": True, "space_before_pt": 10, "space_after_pt": 4},
+            "h3": {"font_size_pt": 12, "bold": True, "space_before_pt": 8,  "space_after_pt": 2},
+        },
+        # list_item section deliberately omits min_run_len
+        "list_item": {"font_size_pt": 12, "bold": False, "italic": False},
+    }
+    spec = Spec(raw=_validate_and_fill_defaults(raw))
+
+    doc = Document()
+    table = doc.add_table(rows=3, cols=1)
+    for i, row in enumerate(table.rows):
+        row.cells[0].paragraphs[0].text = f"{i + 1}）第{i + 1}项内容"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    total = report["actions"]["text_list_converted_to_numpr"]
+    assert total == 3, (
+        f"Expected all 3 table-row items converted even without explicit min_run_len, "
+        f"got {total}. This is the regression: body items form one group so they pass "
+        f"min_run_len=2, but table items in separate cells form groups of 1 and get "
+        f"silently skipped when the default is 2."
+    )
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, f"Expected 3 numPr paragraphs, got {len(list_paras)}"

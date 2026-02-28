@@ -695,7 +695,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     if convert_text_nums:
         num_left_twips = int(list_cfg.get("num_left_twips", 720))
         num_hanging_twips = int(list_cfg.get("num_hanging_twips", 360))
-        min_run_len = int(list_cfg.get("min_run_len", 2))
+        min_run_len = int(list_cfg.get("min_run_len", 1))
         converted_to_numpr, step5_converted_paras = convert_text_lists(
             doc,
             iter_all_paragraphs(doc),

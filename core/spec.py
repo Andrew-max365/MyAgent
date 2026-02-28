@@ -48,7 +48,7 @@ def _validate_and_fill_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
     list_item = dict(cfg.get("list_item") or {})
     list_item.setdefault("left_indent_pt", 18)
     list_item.setdefault("hanging_indent_pt", 18)
-    list_item.setdefault("min_run_len", 2)
+    list_item.setdefault("min_run_len", 1)
     list_item.setdefault("num_left_twips", 720)
     list_item.setdefault("num_hanging_twips", 360)
     list_item.setdefault("convert_text_numbers", True)
