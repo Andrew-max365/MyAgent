@@ -16,6 +16,7 @@ from .docx_utils import (
     delete_paragraph,
     is_effectively_blank_paragraph,
     iter_all_paragraphs,
+    iter_paragraph_runs,
     normalize_mixed_runs,
     set_run_fonts,
 )
@@ -191,9 +192,9 @@ def _resolve_alignment(name: str):
 
 
 def _apply_runs_font(p, zh_font: str, en_font: str, size_pt: float, force_bold=None):
-    # 先把中英混合 run 拆开，再逐 run 写入完整字体映射
+    # 先把中英混合 run 拆开，再逐 run 写入完整字体映射（含超链接内 run）
     normalize_mixed_runs(p)
-    for run in p.runs:
+    for run in iter_paragraph_runs(p):
         run.font.size = Pt(size_pt)
         if force_bold is not None:
             run.font.bold = bool(force_bold)
@@ -607,7 +608,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 p.paragraph_format.alignment = role_align
 
             normalize_mixed_runs(p)
-            for run in p.runs:
+            for run in iter_paragraph_runs(p):
                 run.font.size = Pt(size)
                 run.font.bold = bold
                 run.font.italic = italic

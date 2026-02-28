@@ -98,12 +98,29 @@ def copy_run_style(src_run, dst_run):
         pass
 
 
+def iter_paragraph_runs(paragraph: Paragraph):
+    """
+    Yield all Run objects in a paragraph, including those inside w:hyperlink elements.
+    python-docx's paragraph.runs only returns direct-child w:r elements, missing
+    runs wrapped in hyperlinks (URLs, etc.).
+    """
+    from docx.text.run import Run as _Run
+    for child in paragraph._p:
+        if child.tag.endswith('}r'):
+            yield _Run(child, paragraph)
+        elif child.tag.endswith('}hyperlink'):
+            for sub in child:
+                if sub.tag.endswith('}r'):
+                    yield _Run(sub, paragraph)
+
+
 def normalize_mixed_runs(paragraph: Paragraph):
     """
     将中英混合 run 拆分为单一脚本 run，避免同一 run 只能写一套 rFonts 导致字体不一致。
     保留原 run 的颜色、加粗、斜体等样式。
+    同时处理超链接（w:hyperlink）内的 run，确保 URL 等特殊文本的字体也能被正确设置。
     """
-    runs = list(paragraph.runs)
+    runs = list(iter_paragraph_runs(paragraph))
     for run in runs:
         text = run.text or ""
         parts = split_text_by_script(text)
