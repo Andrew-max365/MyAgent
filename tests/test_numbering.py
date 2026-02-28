@@ -1058,6 +1058,130 @@ def test_apply_formatting_converts_all_table_linebreak_number_items():
         assert not re.match(r"^\s*\d+[)）]", para.text), f"Prefix not stripped: {para.text!r}"
 
 
+# ─── 18. items in separate rows/cells each get the correct start ordinal ──────
+
+def _get_abstractnum_elem(doc, num_id_str):
+    """Return the ``w:abstractNum`` element linked to *num_id_str*, or ``None``."""
+    from core.numbering import _numbering_element
+    nelem = _numbering_element(doc)
+    abs_id_str = None
+    for child in nelem:
+        if child.tag == qn("w:num") and child.get(qn("w:numId")) == num_id_str:
+            ref = child.find(qn("w:abstractNumId"))
+            if ref is not None:
+                abs_id_str = ref.get(qn("w:val"))
+            break
+    if abs_id_str is None:
+        return None
+    for child in nelem:
+        if child.tag == qn("w:abstractNum") and child.get(qn("w:abstractNumId")) == abs_id_str:
+            return child
+    return None
+
+
+def _get_abstractnum_start(doc, num_id_str):
+    """Return the ``w:start`` integer for the abstractNum linked to *num_id_str*."""
+    abs_node = _get_abstractnum_elem(doc, num_id_str)
+    if abs_node is None:
+        return None
+    lvl = abs_node.find(qn("w:lvl"))
+    if lvl is None:
+        return None
+    start_el = lvl.find(qn("w:start"))
+    if start_el is None:
+        return None
+    return int(start_el.get(qn("w:val")))
+
+
+def test_table_items_in_separate_rows_get_correct_start_ordinal():
+    """
+    Regression: when 1）/2）/3） each live in their own table cell (different rows),
+    each gets a separate numId.  The numId for item N must have w:start=N so that
+    Word renders them as 1), 2), 3) respectively – not all as 1).
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=3, cols=1)
+    for i, row in enumerate(table.rows):
+        row.cells[0].paragraphs[0].text = f"{i + 1}）第{i + 1}项内容"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, f"Expected all 3 items converted, got {len(list_paras)}"
+
+    # Each item must use a distinct numId (different cells → different groups)
+    num_id_vals = []
+    for p in list_paras:
+        ppr = p._p.pPr
+        numPr = ppr.find(qn("w:numPr"))
+        num_id_vals.append(numPr.find(qn("w:numId")).get(qn("w:val")))
+    assert len(set(num_id_vals)) == 3, (
+        f"Each item in a separate cell must have its own numId, got {num_id_vals}"
+    )
+
+    # The w:start of each numId's abstractNum must equal the item ordinal (1, 2, 3)
+    for expected_start, num_id_str in zip([1, 2, 3], num_id_vals):
+        actual_start = _get_abstractnum_start(doc, num_id_str)
+        assert actual_start == expected_start, (
+            f"numId {num_id_str}: expected w:start={expected_start}, got {actual_start}. "
+            f"Items in different cells must use the correct start ordinal so Word renders "
+            f"them as 1), 2), 3) instead of all as 1)."
+        )
+
+
+def test_table_items_in_separate_rows_times_new_roman_font():
+    """
+    Items in separate table cells converted to numPr must have Times New Roman
+    applied to their list-marker glyph (abstractNum lvl/rPr/rFonts).
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    # default.yaml has fonts.en = "Times New Roman"
+
+    doc = Document()
+    table = doc.add_table(rows=3, cols=1)
+    for i, row in enumerate(table.rows):
+        row.cells[0].paragraphs[0].text = f"{i + 1}）内容{i + 1}"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, f"Expected 3 converted list items, got {len(list_paras)}"
+
+    for p in list_paras:
+        ppr = p._p.pPr
+        numPr = ppr.find(qn("w:numPr"))
+        num_id_str = numPr.find(qn("w:numId")).get(qn("w:val"))
+
+        abs_node = _get_abstractnum_elem(doc, num_id_str)
+        assert abs_node is not None, f"No abstractNum found for numId {num_id_str}"
+        lvl = abs_node.find(qn("w:lvl"))
+        rPr = lvl.find(qn("w:rPr"))
+        abs_id = abs_node.get(qn("w:abstractNumId"))
+        assert rPr is not None, f"abstractNum {abs_id} lvl has no rPr"
+        rFonts = rPr.find(qn("w:rFonts"))
+        assert rFonts is not None, f"abstractNum {abs_id} lvl rPr has no rFonts"
+        assert rFonts.get(qn("w:ascii")) == "Times New Roman", (
+            f"Expected Times New Roman for w:ascii on abstractNum {abs_id}, "
+            f"got {rFonts.get(qn('w:ascii'))!r}"
+        )
+
+
 def test_create_list_num_id_writes_lvl_rpr_font_settings():
     """Numbering definition should carry lvl/rPr so list marker font follows spec."""
     doc = Document()
