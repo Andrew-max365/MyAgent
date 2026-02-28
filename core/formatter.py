@@ -62,6 +62,18 @@ RE_MULTILINE_NUM = re.compile(r"\n\s*\d+(?:\.\d+)*\.?\s+")
 RE_MULTILINE_SUB = re.compile(r"\n\s*（[一二三四五六七八九十]+）")
 RE_SOFT_LINEBREAK = re.compile(r"[\n\r\v]")
 
+# 表格单元格内联列表分隔符：匹配 ；或 ; 后紧跟列表标记（用于把 "1)项一；2)项二" 拆成独立段落）
+_RE_INLINE_LIST_SEP = re.compile(
+    r'[；;]'                                                              # 全角或半角分号
+    r'(?=\s*(?:'
+    r'\d+[)）]'                                                           # rparen: 2) 或 2）
+    r'|（\d+）'                                                           # paren_arabic: （2）
+    r'|[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]'                                        # enclosed
+    r'|\d+\. '                                                            # num_dot (需要尾随空格)
+    r'|[a-zA-Z][.)]\s'                                                    # alpha
+    r'))'
+)
+
 
 # =========================
 # Helpers
@@ -305,6 +317,43 @@ def _delete_blanks_after_roles(doc, roles: Set[str], role_getter=None) -> int:
     return len(to_delete)
 
 
+def _normalize_table_list_separators(doc, role_getter=None) -> int:
+    """
+    表格单元格内列表项预处理：把"；N)"/"；（N）"等内联分隔符替换为 '\\n'，
+    以便后续 _split_body_paragraphs_on_linebreaks 正确将其拆成独立段落。
+
+    只处理表格单元格内（_is_in_table_cell）且角色为 body/list_item/unknown 的段落。
+    返回被修改的段落数量。
+    """
+    if role_getter is None:
+        role_getter = detect_role
+
+    modified = 0
+    for p in list(iter_all_paragraphs(doc)):
+        if not _is_in_table_cell(p):
+            continue
+        if is_effectively_blank_paragraph(p):
+            continue
+        role = role_getter(p)
+        if role not in {"body", "list_item", "unknown"}:
+            continue
+        text = p.text or ""
+        # 只处理以列表标记开头、且包含内联分隔符的段落
+        if detect_text_list_prefix(text) is None:
+            continue
+        if not _RE_INLINE_LIST_SEP.search(text):
+            continue
+        # 逐 run 将 ；（紧跟列表标记处）替换为 \n
+        changed = False
+        for run in iter_paragraph_runs(p):
+            if run.text and _RE_INLINE_LIST_SEP.search(run.text):
+                run.text = _RE_INLINE_LIST_SEP.sub('\n', run.text)
+                changed = True
+        if changed:
+            modified += 1
+    return modified
+
+
 def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph=None) -> int:
     """
     关键修复：
@@ -507,6 +556,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         "plan_executed": [
             "cleanup_consecutive_blanks",
             "delete_blanks_after_titles",
+            "normalize_table_inline_list_separators",
             "split_body_paragraphs_on_linebreaks",
             "apply_formatting",
             "convert_text_lists_to_numpr",
@@ -523,6 +573,11 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     # 2) 标题/题注后空段删光
     deleted_after_roles = _delete_blanks_after_roles(doc, roles=remove_blank_after_roles, role_getter=get_role)
     report["actions"]["delete_blanks_after_titles_deleted"] = deleted_after_roles
+
+    # 2.5) 表格单元格内联列表分隔符规范化：把"；N)"形式的分隔符替换为 '\n'，
+    # 以便后续拆段步骤（步骤3）能识别并将各列表项拆成独立段落。
+    normalized_table_seps = _normalize_table_list_separators(doc, role_getter=get_role)
+    report["actions"]["table_inline_list_normalized"] = normalized_table_seps
 
     # 3) 核心修复：拆正文段落里的软回车换行（\n/\r/\v）
     # 先做一次“预估/统计”，便于 report 诊断
