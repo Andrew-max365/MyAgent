@@ -60,6 +60,7 @@ RE_BODY_LIST_NUM_DOT = re.compile(r"^\s*\d+\.\s")                 # 1. 2. 3. (si
 # 匹配嵌入换行后的数字编号（1 text、1. text、1.1 text 等），将整段保留为 body 以便后续拆段
 RE_MULTILINE_NUM = re.compile(r"\n\s*\d+(?:\.\d+)*\.?\s+")
 RE_MULTILINE_SUB = re.compile(r"\n\s*（[一二三四五六七八九十]+）")
+RE_SOFT_LINEBREAK = re.compile(r"[\n\r\v]")
 
 
 # =========================
@@ -307,10 +308,10 @@ def _delete_blanks_after_roles(doc, roles: Set[str], role_getter=None) -> int:
 def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph=None) -> int:
     """
     关键修复：
-    把正文段落里的 '\n'（通常是 Shift+Enter 软回车）拆成多个段落，
-    这样每一条（比如 \n1. \n2.）都能获得“首行缩进”。
+    把正文/列表段落里的 '\n'（通常是 Shift+Enter 软回车）拆成多个段落，
+    这样每一条（比如 \n1. \n2.）都能被后续编号转换识别。
 
-    - role_getter: 用于判断某段是否为 body（默认 detect_role）。
+    - role_getter: 用于判断某段是否可拆分（默认 detect_role）。
     - on_new_paragraph(parent, child): 可选回调；当从 parent 拆出 child 时调用。
       用于“继承标签/元数据”等（例如：child 的 role 继承 parent）。
 
@@ -325,20 +326,20 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
         if is_effectively_blank_paragraph(p):
             continue
 
-        # 只拆正文；标题/题注不拆，避免破坏结构
+        # 只拆正文/列表/unknown；标题/题注不拆，避免破坏结构
         role = role_getter(p)
-        if role != "body":
+        if role not in {"body", "list_item", "unknown"}:
             continue
 
         text = p.text or ""
-        if "\n" not in text:
+        if RE_SOFT_LINEBREAK.search(text) is None:
             continue
 
         # 保留每一行对应的“源 run 样式”（颜色/粗斜体），避免拆段后样式丢失
         raw_runs = list(p.runs)
         line_parts = [[]]
         for src_run in raw_runs:
-            parts = (src_run.text or "").split("\n")
+            parts = re.split(r"[\n\r\v]", (src_run.text or ""))
             for idx, part in enumerate(parts):
                 if part:
                     line_parts[-1].append((part, src_run))
@@ -523,7 +524,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     deleted_after_roles = _delete_blanks_after_roles(doc, roles=remove_blank_after_roles, role_getter=get_role)
     report["actions"]["delete_blanks_after_titles_deleted"] = deleted_after_roles
 
-    # 3) 核心修复：拆正文段落里的软回车换行（\n）
+    # 3) 核心修复：拆正文段落里的软回车换行（\n/\r/\v）
     # 先做一次“预估/统计”，便于 report 诊断
     split_affected = 0
     split_max_lines = 0
@@ -531,12 +532,12 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     for p in orig_paras:
         if is_effectively_blank_paragraph(p):
             continue
-        if get_role(p) != "body":
+        if get_role(p) not in {"body", "list_item", "unknown"}:
             continue
         t = p.text or ""
-        if "\n" not in t:
+        if RE_SOFT_LINEBREAK.search(t) is None:
             continue
-        lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+        lines = [ln.strip() for ln in re.split(r"[\n\r\v]", t) if ln.strip()]
         if len(lines) <= 1:
             continue
         split_affected += 1
@@ -704,6 +705,11 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             min_run_len=min_run_len,
             left_twips=num_left_twips,
             hanging_twips=num_hanging_twips,
+            zh_font=zh_font,
+            en_font=en_font,
+            size_pt=list_size,
+            bold=list_bold,
+            italic=list_italic,
         )
         # Sync font/size for paragraphs converted in this step
         for p in step5_converted_paras:
