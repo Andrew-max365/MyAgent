@@ -30,10 +30,13 @@ def _validate_and_fill_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
 
     heading = _ensure_dict(cfg.get("heading"), "heading")
     for h in ["h1", "h2", "h3"]:
-        hc = _ensure_dict(heading.get(h), f"heading.{h}")
+        hc = dict(_ensure_dict(heading.get(h), f"heading.{h}"))
         for key in ["font_size_pt", "bold", "space_before_pt", "space_after_pt"]:
             if key not in hc:
                 raise ValueError(f"spec.heading.{h}.{key} is required")
+        hc.setdefault("alignment", "center" if h == "h1" else "left")
+        heading[h] = hc
+    cfg["heading"] = heading
 
     cleanup = dict(cfg.get("cleanup") or {})
     if cleanup.get("remove_all_blank_paragraphs"):

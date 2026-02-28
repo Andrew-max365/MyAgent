@@ -22,16 +22,19 @@ heading:
     bold: true
     space_before_pt: 18
     space_after_pt: 9
+    alignment: "center"
   h2:
     font_size_pt: 14        # 三号，黑体
     bold: true
     space_before_pt: 12
     space_after_pt: 6
+    alignment: "left"
   h3:
     font_size_pt: 12        # 小三，黑体
     bold: true
     space_before_pt: 9
     space_after_pt: 4
+    alignment: "left"
 
 caption:
   font_size_pt: 9           # 小五

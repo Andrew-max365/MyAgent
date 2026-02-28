@@ -20,16 +20,19 @@ heading:
     bold: true
     space_before_pt: 12
     space_after_pt: 6
+    alignment: "center"
   h2:
     font_size_pt: 14
     bold: true
     space_before_pt: 10
     space_after_pt: 4
+    alignment: "left"
   h3:
     font_size_pt: 12
     bold: true
     space_before_pt: 8
     space_after_pt: 2
+    alignment: "left"
 
 caption:
   font_size_pt: 10.5

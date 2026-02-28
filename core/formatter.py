@@ -31,7 +31,7 @@ RE_CAPTION = re.compile(
     re.IGNORECASE
 )
 
-RE_CN_ENUM = re.compile(r"^\s*[一二三四五六七八九十]+、")
+RE_CN_ENUM = re.compile(r"^\s*[一二三四五六七八九十百千万]+、")  # 接受所有中文数字字符前缀（含百千万），不强制校验组合合法性
 RE_NUM_DOT = re.compile(r"^\s*\d+(\.\d+){0,3}\s+")
 RE_ABSTRACT = re.compile(r"^\s*(摘要|abstract)\s*[:：]?\s*", re.IGNORECASE)
 RE_KEYWORD = re.compile(r"^\s*(关键词|关键字|keywords?)\s*[:：]?\s*", re.IGNORECASE)
@@ -91,8 +91,24 @@ def _insert_paragraph_after(p, text: str):
 
 def detect_role(paragraph) -> str:
     """
-    blank / h1 / h2 / h3 / caption / body
-    注意：我们不做真编号/列表结构，1.2.3. 一律当正文 body。
+    Detect the structural role of a paragraph.
+
+    Returns one of:
+      blank / h1 / h2 / h3 / caption / abstract / keyword / reference /
+      list_item / footer / body
+
+    Rules applied in priority order:
+      1. blank (empty / whitespace-only)
+      2. body  (multi-line numbered block – avoids misclassifying as heading)
+      3. Word heading/footer styles
+      4. Abstract / keyword / reference text patterns
+      5. Caption text pattern (before list_item so captioned lists stay as caption)
+      6. Word list paragraph (numPr)
+      7. （一）-style sub-heading → h3
+      8. 第X章/节/条 patterns → h1/h2/h3
+      9. Chinese numeral enum (一、二、…) → h2
+      10. Numeric outline (1. / 1.1) → h2/h3
+      11. Fallback → body
     """
     if is_effectively_blank_paragraph(paragraph):
         return "blank"
@@ -126,11 +142,11 @@ def detect_role(paragraph) -> str:
         return "keyword"
     if RE_REFERENCE.match(t):
         return "reference"
+    if RE_CAPTION.match(t):
+        return "caption"
     if is_list_paragraph(paragraph):
         return "list_item"
 
-    if RE_CAPTION.match(t):
-        return "caption"
     if RE_SUBTITLE_CN.match(t):
         return "h3"
 
@@ -138,6 +154,8 @@ def detect_role(paragraph) -> str:
         return "h1"
     if t.startswith("第") and "节" in t[:12]:
         return "h2"
+    if t.startswith("第") and "条" in t[:12]:
+        return "h3"
     if RE_CN_ENUM.match(t):
         return "h2"
     if RE_NUM_DOT.match(t):
@@ -526,11 +544,14 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             bold = bool(hc["bold"])
             before = float(hc["space_before_pt"])
             after = float(hc["space_after_pt"])
+            heading_align = _resolve_alignment(hc.get("alignment", "left"))
 
             _apply_paragraph_common(p, body_line_spacing, before, after)
             p.paragraph_format.left_indent = Pt(0)
             p.paragraph_format.hanging_indent = Pt(0)
             p.paragraph_format.first_line_indent = Pt(0)
+            if heading_align is not None:
+                p.paragraph_format.alignment = heading_align
             _apply_runs_font(p, zh_font, en_font, size_pt=size, force_bold=bold)
             formatted_counter[role] += 1
 
@@ -598,6 +619,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             # unknown：当正文处理，尽量不让段落漏掉缩进/字体统一
             _apply_paragraph_common(p, body_line_spacing, body_before, body_after)
             p.paragraph_format.left_indent = Pt(0)
+            p.paragraph_format.hanging_indent = Pt(0)
             p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
             if body_alignment is not None:
                 p.paragraph_format.alignment = body_alignment

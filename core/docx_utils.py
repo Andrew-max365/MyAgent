@@ -1,7 +1,6 @@
 # core/docx_utils.py
 import string
-from copy import deepcopy
-from typing import Iterator, List, Optional, Tuple, Union
+from typing import Iterator, List, Tuple, Union
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
