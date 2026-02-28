@@ -21,16 +21,19 @@ heading:
     bold: true
     space_before_pt: 0
     space_after_pt: 18
+    alignment: "center"
   h2:
     font_size_pt: 14        # 章标题：小三黑体
     bold: true
     space_before_pt: 12
     space_after_pt: 6
+    alignment: "left"
   h3:
     font_size_pt: 12        # 条款标题：小四黑体
     bold: true
     space_before_pt: 6
     space_after_pt: 3
+    alignment: "left"
 
 caption:
   font_size_pt: 10.5

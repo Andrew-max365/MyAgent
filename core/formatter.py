@@ -31,7 +31,7 @@ RE_CAPTION = re.compile(
     re.IGNORECASE
 )
 
-RE_CN_ENUM = re.compile(r"^\s*[一二三四五六七八九十]+、")
+RE_CN_ENUM = re.compile(r"^\s*[一二三四五六七八九十百千万]+、")  # 接受所有中文数字字符前缀（含百千万），不强制校验组合合法性
 RE_NUM_DOT = re.compile(r"^\s*\d+(\.\d+){0,3}\s+")
 RE_ABSTRACT = re.compile(r"^\s*(摘要|abstract)\s*[:：]?\s*", re.IGNORECASE)
 RE_KEYWORD = re.compile(r"^\s*(关键词|关键字|keywords?)\s*[:：]?\s*", re.IGNORECASE)
@@ -126,11 +126,11 @@ def detect_role(paragraph) -> str:
         return "keyword"
     if RE_REFERENCE.match(t):
         return "reference"
+    if RE_CAPTION.match(t):
+        return "caption"
     if is_list_paragraph(paragraph):
         return "list_item"
 
-    if RE_CAPTION.match(t):
-        return "caption"
     if RE_SUBTITLE_CN.match(t):
         return "h3"
 
@@ -138,6 +138,8 @@ def detect_role(paragraph) -> str:
         return "h1"
     if t.startswith("第") and "节" in t[:12]:
         return "h2"
+    if t.startswith("第") and "条" in t[:12]:
+        return "h3"
     if RE_CN_ENUM.match(t):
         return "h2"
     if RE_NUM_DOT.match(t):
@@ -526,11 +528,14 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             bold = bool(hc["bold"])
             before = float(hc["space_before_pt"])
             after = float(hc["space_after_pt"])
+            heading_align = _resolve_alignment(hc.get("alignment", "left"))
 
             _apply_paragraph_common(p, body_line_spacing, before, after)
             p.paragraph_format.left_indent = Pt(0)
             p.paragraph_format.hanging_indent = Pt(0)
             p.paragraph_format.first_line_indent = Pt(0)
+            if heading_align is not None:
+                p.paragraph_format.alignment = heading_align
             _apply_runs_font(p, zh_font, en_font, size_pt=size, force_bold=bold)
             formatted_counter[role] += 1
 

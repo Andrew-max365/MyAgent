@@ -22,16 +22,19 @@ heading:
     bold: true
     space_before_pt: 0
     space_after_pt: 24
+    alignment: "center"
   h2:
     font_size_pt: 16        # 小二，楷体_GB2312（一级条款标题）
     bold: false
     space_before_pt: 12
     space_after_pt: 6
+    alignment: "left"
   h3:
     font_size_pt: 14        # 四号，仿宋加粗（二级条款）
     bold: true
     space_before_pt: 6
     space_after_pt: 3
+    alignment: "left"
 
 caption:
   font_size_pt: 12          # 小四

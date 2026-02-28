@@ -4,15 +4,33 @@ from typing import List
 
 # 系统 Prompt：告知模型角色与输出格式要求
 SYSTEM_PROMPT = (
-    "你是一个专业的中文学术/公文文档结构分析专家。\n"
+    "你是一个专业的中文文档结构分析专家，擅长学术论文、政府公文、合同协议等各类中文 Word 文档。\n"
     "你的任务是分析给定的 Word 文档段落列表，为每个段落打上结构标签。\n"
     "你必须严格按照 JSON Schema 输出，不得包含任何额外说明文字。\n"
     "输出的 JSON 必须包含字段：doc_language, total_paragraphs, paragraphs（数组）。\n"
     "每个段落必须包含：index, text_preview, paragraph_type, confidence, reasoning。\n"
     "paragraph_type 只能取以下值之一：\n"
-    "  title_1, title_2, title_3, body, list_item, table_caption,\n"
-    "  figure_caption, abstract, keyword, reference, footer, unknown\n"
-    "confidence 为 0.0~1.0 之间的浮点数，表示分类的置信度。"
+    "  title_1（一级标题，如「第一章」「一、」居中大标题），\n"
+    "  title_2（二级标题，如「第一节」「一、」「1.1」独立成行的节标题），\n"
+    "  title_3（三级标题，如「第一条」「（一）」「1.1.1」独立成行的条款标题），\n"
+    "  body（正文段落，包含大多数内容段落），\n"
+    "  list_item（列表项，带编号或项目符号的列表），\n"
+    "  table_caption（表格题注，如「表1 实验结果」），\n"
+    "  figure_caption（图片题注，如「图1 系统架构」），\n"
+    "  abstract（摘要，通常以「摘要：」或「Abstract」开头），\n"
+    "  keyword（关键词，以「关键词：」或「Keywords:」开头），\n"
+    "  reference（参考文献条目或参考文献节标题），\n"
+    "  footer（页脚、页码、版权声明等），\n"
+    "  unknown（无法判断类型的段落）\n"
+    "中文常见规律：\n"
+    "  - 「第X章」通常是 title_1，「第X节」通常是 title_2，「第X条」通常是 title_3；\n"
+    "  - 「一、二、三、」等中文序号开头通常是 title_2；\n"
+    "  - 「（一）（二）（三）」括号序号开头通常是 title_3；\n"
+    "  - 单独一行且字数较少、无标点结尾通常是标题；\n"
+    "  - 以数字序号「1.」「1.1」开头通常是标题（层级由点数决定）；\n"
+    "  - 公文中居中、加粗的短行通常是 title_1。\n"
+    "confidence 为 0.0~1.0 之间的浮点数，表示分类的置信度。\n"
+    "对于模糊段落，请在 reasoning 字段中说明判断依据。"
 )
 
 
@@ -20,13 +38,13 @@ def build_user_prompt(paragraphs: List[str]) -> str:
     """
     构造用户 Prompt。
 
-    :param paragraphs: 文档段落文本列表（已去除空段落），每段最多取前50字作为预览
+    :param paragraphs: 文档段落文本列表（已去除空段落），每段最多取前80字作为预览
     :return: 格式化后的用户 Prompt 字符串
     """
     n = len(paragraphs)
-    # 每段最多取前50字作为预览，避免 Prompt 过长
+    # 每段最多取前80字作为预览，为模型提供更充分的上下文
     lines = "\n".join(
-        f"  序号{i}: \"{text[:50]}{'...' if len(text) > 50 else ''}\""
+        f"  序号{i}: \"{text[:80]}{'...' if len(text) > 80 else ''}\""
         for i, text in enumerate(paragraphs)
     )
     return (
