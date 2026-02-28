@@ -880,3 +880,152 @@ def test_table_cell_rparen_items_all_converted():
     assert len(list_paras) == 3, (
         f"Expected all 3 table cell items to have numPr, got {len(list_paras)}"
     )
+
+
+# ─── 15. rparen without trailing space ───────────────────────────────────────
+
+def test_detect_rparen_no_space():
+    """rparen items written without space after paren (e.g. '2）内容') must be detected."""
+    result = detect_text_list_prefix("2）第二点")
+    assert result is not None, "Expected rparen detection for '2）第二点' (no space)"
+    fmt, ordinal, prefix_len = result
+    assert fmt == "rparen"
+    assert ordinal == 2
+    assert prefix_len == 2  # "2" + "）" = 2 characters
+
+
+def test_detect_rparen_no_space_prefix_stripped_correctly():
+    """strip_list_text_prefix must remove the '2）' prefix when there is no trailing space."""
+    doc = Document()
+    p = doc.add_paragraph("2）第二点内容")
+    result = detect_text_list_prefix(p.text)
+    assert result is not None
+    _, _, prefix_len = result
+    strip_list_text_prefix(p, prefix_len)
+    assert "2）" not in p.text
+    assert "第二点内容" in p.text
+
+
+def test_detect_role_rparen_no_space_is_list_item():
+    """detect_role must return 'list_item' for '1）内容' (no space after paren)."""
+    doc = Document()
+    assert detect_role(doc.add_paragraph("1）第一点")) == "list_item"
+    assert detect_role(doc.add_paragraph("2）第二点")) == "list_item"
+    assert detect_role(doc.add_paragraph("10）第十点")) == "list_item"
+
+
+# ─── 16. mixed paren_arabic + rparen in same cell all converted ───────────────
+
+def test_table_cell_mixed_paren_format_all_converted():
+    """
+    Chinese docs often use （1） for the first item and 2）/3） for subsequent items.
+    All three items must be converted to numPr as a single list group.
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell.paragraphs[0].text = "（1）表格列表项一"
+    cell.add_paragraph("2）表格列表项二")
+    cell.add_paragraph("3）表格列表项三")
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, (
+        f"Expected all 3 mixed-format items to have numPr, got {len(list_paras)}"
+    )
+
+
+def test_table_cell_mixed_paren_font_applied():
+    """All items in a mixed-format list must have the list_item font applied."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    raw = copy.deepcopy(spec.raw)
+    raw["list_item"]["font_size_pt"] = 11
+    spec_mod = Spec(raw=raw)
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell.paragraphs[0].text = "（1）第一条"
+    cell.add_paragraph("2）第二条")
+    cell.add_paragraph("3）第三条")
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec_mod)
+
+    for p in iter_all_paragraphs(doc):
+        if not is_effectively_blank_paragraph(p):
+            assert _is_list_p(p), f"Expected numPr on {p.text!r}"
+            for run in p.runs:
+                if run.text:
+                    assert run.font.size == Pt(11), (
+                        f"Expected 11pt on run {run.text!r}, got {run.font.size}"
+                    )
+
+
+# ─── 17. cell-boundary: two cells with independent lists get separate numIds ──
+
+def test_two_table_cells_get_independent_numids():
+    """
+    Two table cells each containing a 1)/2)/3) list must get separate numId values.
+    Items from cell 1 must NOT be merged into the same Word list as items from cell 2.
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=2)
+    cell1 = table.cell(0, 0)
+    cell1.paragraphs[0].text = "1）第一条"
+    cell1.add_paragraph("2）第二条")
+
+    cell2 = table.cell(0, 1)
+    cell2.paragraphs[0].text = "1）甲"
+    cell2.add_paragraph("2）乙")
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    # All 4 paragraphs should have numPr
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 4, f"Expected 4 numPr paragraphs, got {len(list_paras)}"
+
+    # Each cell's items should share one numId, but the two cells must have different numIds
+    def _get_num_ids(cell):
+        ids = set()
+        for p in cell.paragraphs:
+            ppr = p._p.pPr
+            if ppr is not None:
+                numPr = ppr.find(qn("w:numPr"))
+                if numPr is not None:
+                    ids.add(numPr.find(qn("w:numId")).get(qn("w:val")))
+        return ids
+
+    ids1 = _get_num_ids(table.cell(0, 0))
+    ids2 = _get_num_ids(table.cell(0, 1))
+
+    assert len(ids1) == 1, f"Cell 1 items should share one numId, got {ids1}"
+    assert len(ids2) == 1, f"Cell 2 items should share one numId, got {ids2}"
+    assert ids1 != ids2, (
+        f"Cell 1 and cell 2 must have different numIds (got the same: {ids1})"
+    )
