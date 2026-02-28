@@ -42,3 +42,16 @@ def test_split_linebreaks_in_table_cell_list_item_paragraph():
     paras = table.cell(0, 0).paragraphs
     assert created == 2
     assert [para.text for para in paras] == ["1）第一行", "2）第二行", "3）第三行"]
+
+
+def test_split_linebreaks_in_table_cell_list_item_carriage_return():
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    p = table.cell(0, 0).paragraphs[0]
+    p.text = "1）第一行\r2）第二行\r3）第三行"
+
+    created = _split_body_paragraphs_on_linebreaks(doc, role_getter=lambda _: "list_item")
+
+    paras = table.cell(0, 0).paragraphs
+    assert created == 2
+    assert [para.text for para in paras] == ["1）第一行", "2）第二行", "3）第三行"]

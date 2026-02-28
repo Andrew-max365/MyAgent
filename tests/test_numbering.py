@@ -1101,3 +1101,29 @@ def test_create_list_num_id_writes_lvl_rpr_font_settings():
     sz = rPr.find(qn("w:sz"))
     assert sz is not None
     assert sz.get(qn("w:val")) == "28"
+
+
+def test_apply_formatting_converts_table_carriage_return_number_items():
+    """Table-cell list text using carriage-return soft breaks should all become numPr."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell.paragraphs[0].text = "1）第一条\r2）第二条\r3）第三条"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=para.text, paragraph_index=i)
+        for i, para in enumerate(paras)
+    ]
+    labels = {blocks[0].block_id: "list_item", "_source": "test"}
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    assert report["actions"]["text_list_converted_to_numpr"] == 3
+    cell_paras = table.cell(0, 0).paragraphs
+    assert len(cell_paras) == 3
+    for para in cell_paras:
+        assert _is_list_p(para), f"Expected numPr on {para.text!r}"
+        assert not re.match(r"^\s*\d+[)）]", para.text), f"Prefix not stripped: {para.text!r}"

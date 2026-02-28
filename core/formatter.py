@@ -60,6 +60,7 @@ RE_BODY_LIST_NUM_DOT = re.compile(r"^\s*\d+\.\s")                 # 1. 2. 3. (si
 # 匹配嵌入换行后的数字编号（1 text、1. text、1.1 text 等），将整段保留为 body 以便后续拆段
 RE_MULTILINE_NUM = re.compile(r"\n\s*\d+(?:\.\d+)*\.?\s+")
 RE_MULTILINE_SUB = re.compile(r"\n\s*（[一二三四五六七八九十]+）")
+RE_SOFT_LINEBREAK = re.compile(r"[\n\r\v]")
 
 
 # =========================
@@ -331,14 +332,14 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
             continue
 
         text = p.text or ""
-        if "\n" not in text:
+        if RE_SOFT_LINEBREAK.search(text) is None:
             continue
 
         # 保留每一行对应的“源 run 样式”（颜色/粗斜体），避免拆段后样式丢失
-        raw_runs = list(p.runs)
+        raw_runs = list(iter_paragraph_runs(p))
         line_parts = [[]]
         for src_run in raw_runs:
-            parts = (src_run.text or "").split("\n")
+            parts = re.split(r"[\n\r\v]", (src_run.text or ""))
             for idx, part in enumerate(parts):
                 if part:
                     line_parts[-1].append((part, src_run))
@@ -523,7 +524,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     deleted_after_roles = _delete_blanks_after_roles(doc, roles=remove_blank_after_roles, role_getter=get_role)
     report["actions"]["delete_blanks_after_titles_deleted"] = deleted_after_roles
 
-    # 3) 核心修复：拆正文段落里的软回车换行（\n）
+    # 3) 核心修复：拆正文段落里的软回车换行（\n/\r/\v）
     # 先做一次“预估/统计”，便于 report 诊断
     split_affected = 0
     split_max_lines = 0
@@ -534,9 +535,9 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         if get_role(p) not in {"body", "list_item", "unknown"}:
             continue
         t = p.text or ""
-        if "\n" not in t:
+        if RE_SOFT_LINEBREAK.search(t) is None:
             continue
-        lines = [ln.strip() for ln in t.split("\n") if ln.strip()]
+        lines = [ln.strip() for ln in re.split(r"[\n\r\v]", t) if ln.strip()]
         if len(lines) <= 1:
             continue
         split_affected += 1
