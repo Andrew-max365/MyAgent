@@ -12,7 +12,7 @@ from docx.shared import Pt
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from core.spec import load_spec
-from core.formatter import apply_formatting
+from core.formatter import apply_formatting, detect_role
 
 
 SPECS_DIR = Path(__file__).resolve().parents[1] / "specs"
@@ -34,6 +34,13 @@ def _make_doc_with_roles(role_texts: list) -> tuple:
     labels = {b.block_id: role for b, (role, _) in zip(blocks, role_texts)}
     labels["_source"] = "test"
     return doc, blocks, labels
+
+
+def _mark_paragraph_as_numbered_list(paragraph) -> None:
+    """Mark a paragraph as a numbered list item via numPr XML for detect_role tests."""
+    num_pr = paragraph._p.get_or_add_pPr().get_or_add_numPr()
+    num_pr.get_or_add_ilvl().val = 0
+    num_pr.get_or_add_numId().val = 1
 
 
 def test_semantic_roles_formatted_not_as_unknown():
@@ -85,3 +92,40 @@ def test_abstract_italic_in_default_spec():
     """Default spec abstract should be italic to visually distinguish it from body."""
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
     assert spec.raw["abstract"]["italic"] is True
+
+
+def test_detect_role_semantic_patterns():
+    """detect_role should recognize semantic text patterns and numbered list paragraphs."""
+    doc = Document()
+    p_abs = doc.add_paragraph("摘要：这是摘要内容。")
+    p_kw = doc.add_paragraph("关键词：测试；排版")
+    p_ref = doc.add_paragraph("参考文献")
+    p_list = doc.add_paragraph("第一条")
+
+    _mark_paragraph_as_numbered_list(p_list)
+
+    assert detect_role(p_abs) == "abstract"
+    assert detect_role(p_kw) == "keyword"
+    assert detect_role(p_ref) == "reference"
+    assert detect_role(p_list) == "list_item"
+
+
+def test_detect_role_semantic_patterns_edge_variants():
+    """detect_role should support case and punctuation variants for semantic patterns."""
+    doc = Document()
+    assert detect_role(doc.add_paragraph("ABSTRACT This is abstract content.")) == "abstract"
+    assert detect_role(doc.add_paragraph("Keywords test, parser")) == "keyword"
+    assert detect_role(doc.add_paragraph("  references  ")) == "reference"
+
+
+def test_unknown_label_falls_back_to_semantic_detect_role():
+    """unknown labels should fall back to semantic detect_role instead of unknown_as_body."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    role_texts = [("unknown", "摘要：这里是摘要内容。")]
+    doc, blocks, labels = _make_doc_with_roles(role_texts)
+
+    report = apply_formatting(doc, blocks, labels, spec)
+    counts = report["formatted"]["counts"]
+
+    assert counts.get("abstract", 0) == 1
+    assert counts.get("unknown_as_body", 0) == 0
