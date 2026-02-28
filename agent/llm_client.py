@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import List
 
 import openai
@@ -10,6 +11,59 @@ import openai
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_S
 from agent.prompt_templates import SYSTEM_PROMPT, build_user_prompt
 from agent.schema import DocumentStructure
+
+ALLOWED_PARAGRAPH_TYPES = {
+    "title_1",
+    "title_2",
+    "title_3",
+    "body",
+    "list_item",
+    "table_caption",
+    "figure_caption",
+    "abstract",
+    "keyword",
+    "reference",
+    "footer",
+    "unknown",
+}
+
+PARAGRAPH_TYPE_ALIASES = {
+    "title1": "title_1",
+    "title_1": "title_1",
+    "heading1": "title_1",
+    "heading_1": "title_1",
+    "h1": "title_1",
+    "一级标题": "title_1",
+    "title2": "title_2",
+    "title_2": "title_2",
+    "heading2": "title_2",
+    "heading_2": "title_2",
+    "h2": "title_2",
+    "二级标题": "title_2",
+    "title3": "title_3",
+    "title_3": "title_3",
+    "heading3": "title_3",
+    "heading_3": "title_3",
+    "h3": "title_3",
+    "三级标题": "title_3",
+    "正文": "body",
+    "paragraph": "body",
+    "list": "list_item",
+    "bullet": "list_item",
+    "列表": "list_item",
+    "列表项": "list_item",
+    "caption": "figure_caption",
+    "图注": "figure_caption",
+    "表注": "table_caption",
+    "摘要": "abstract",
+    "关键词": "keyword",
+    "关键字": "keyword",
+    "参考文献": "reference",
+    "页脚": "footer",
+    "other": "unknown",
+    "unk": "unknown",
+    "未知": "unknown",
+}
 
 
 class LLMCallError(Exception):
@@ -70,6 +124,7 @@ class LLMClient:
         try:
             raw = self.call_raw(paragraphs)
             data = json.loads(self._normalize_json_text(raw))
+            data = self._canonicalize_structure_payload(data)
             return DocumentStructure(**data)
         except LLMCallError:
             raise
@@ -88,3 +143,37 @@ class LLMClient:
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
         return text
+
+    @staticmethod
+    def _normalize_paragraph_type(raw_type: str) -> str:
+        if not isinstance(raw_type, str):
+            return "unknown"
+        text = raw_type.strip().lower()
+        normalized = re.sub(r"[\s\-]+", "_", text)
+        if normalized in ALLOWED_PARAGRAPH_TYPES:
+            return normalized
+        collapsed = normalized.replace("_", "")
+        return (
+            PARAGRAPH_TYPE_ALIASES.get(normalized)
+            or PARAGRAPH_TYPE_ALIASES.get(collapsed)
+            or "unknown"
+        )
+
+    @classmethod
+    def _canonicalize_structure_payload(cls, data):
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        paragraphs = payload.get("paragraphs")
+        if isinstance(paragraphs, list):
+            normalized_paragraphs = []
+            for item in paragraphs:
+                if not isinstance(item, dict):
+                    normalized_paragraphs.append(item)
+                    continue
+                p = dict(item)
+                p["paragraph_type"] = cls._normalize_paragraph_type(p.get("paragraph_type"))
+                normalized_paragraphs.append(p)
+            payload["paragraphs"] = normalized_paragraphs
+            payload.setdefault("total_paragraphs", len(normalized_paragraphs))
+        return payload
