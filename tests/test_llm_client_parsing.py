@@ -35,3 +35,31 @@ def test_canonicalize_structure_payload_normalizes_alias_types():
         "figure_caption",
         "unknown",
     ]
+
+
+def test_canonicalize_structure_payload_accepts_common_field_aliases():
+    payload = {
+        "doc_language": "zh",
+        "paragraphs": [
+            {
+                "paragraph_index": 0,
+                "text": "这是标题",
+                "type": "h1",
+            },
+            {
+                "paragraph_index": 1,
+                "text": "这是正文",
+                "label": "paragraph",
+                "confidence": 0.8,
+            },
+        ],
+    }
+
+    normalized = LLMClient._canonicalize_structure_payload(payload)
+
+    assert normalized["total_paragraphs"] == 2
+    assert normalized["paragraphs"][0]["index"] == 0
+    assert normalized["paragraphs"][0]["text_preview"] == "这是标题"
+    assert normalized["paragraphs"][0]["paragraph_type"] == "title_1"
+    assert normalized["paragraphs"][0]["confidence"] == 0.0
+    assert normalized["paragraphs"][1]["paragraph_type"] == "body"

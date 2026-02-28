@@ -169,7 +169,14 @@ class LLMClient:
                     normalized_paragraphs.append(item)
                     continue
                 p = dict(item)
-                p["paragraph_type"] = cls._normalize_paragraph_type(p.get("paragraph_type"))
+                raw_type = p.get("paragraph_type", p.get("type", p.get("label")))
+                p["paragraph_type"] = cls._normalize_paragraph_type(raw_type)
+                if "index" not in p and "paragraph_index" in p:
+                    p["index"] = p.get("paragraph_index")
+                if "text_preview" not in p and isinstance(p.get("text"), str):
+                    p["text_preview"] = p.get("text")
+                if "confidence" not in p:
+                    p["confidence"] = 0.0
                 normalized_paragraphs.append(p)
             payload["paragraphs"] = normalized_paragraphs
             payload.setdefault("total_paragraphs", len(normalized_paragraphs))
