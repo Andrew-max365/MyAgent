@@ -37,7 +37,7 @@ def test_canonicalize_structure_payload_normalizes_alias_types():
     ]
 
 
-def test_canonicalize_structure_payload_accepts_common_field_aliases():
+def test_field_alias_canonicalization():
     payload = {
         "doc_language": "zh",
         "paragraphs": [
@@ -63,3 +63,4 @@ def test_canonicalize_structure_payload_accepts_common_field_aliases():
     assert normalized["paragraphs"][0]["paragraph_type"] == "title_1"
     assert normalized["paragraphs"][0]["confidence"] == 0.0
     assert normalized["paragraphs"][1]["paragraph_type"] == "body"
+    assert normalized["paragraphs"][1]["confidence"] == 0.8
