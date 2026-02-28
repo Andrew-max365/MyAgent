@@ -7,6 +7,7 @@ import re
 from typing import Any, List
 
 import openai
+import pydantic
 
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_S
 from agent.prompt_templates import SYSTEM_PROMPT, build_user_prompt
@@ -63,7 +64,9 @@ _WHITESPACE_DASH_PATTERN = re.compile(r"[\s\-]+")
 
 class LLMCallError(Exception):
     """LLM 调用失败时抛出的自定义异常"""
-    pass
+    def __init__(self, message: str, error_type: str = "unknown"):
+        super().__init__(message)
+        self.error_type = error_type  # "timeout" | "auth" | "format_error" | "unknown"
 
 
 class LLMClient:
@@ -105,8 +108,12 @@ class LLMClient:
                 response_format={"type": "json_object"},
             )
             return response.choices[0].message.content
+        except openai.APITimeoutError as e:
+            raise LLMCallError(f"LLM 调用超时: {e}", error_type="timeout") from e
+        except openai.AuthenticationError as e:
+            raise LLMCallError(f"LLM 鉴权失败: {e}", error_type="auth") from e
         except Exception as e:
-            raise LLMCallError(f"LLM 调用失败: {e}") from e
+            raise LLMCallError(f"LLM 调用失败: {e}", error_type="unknown") from e
 
     def call_structured(self, paragraphs: List[str]) -> DocumentStructure:
         """
@@ -123,8 +130,12 @@ class LLMClient:
             return DocumentStructure(**data)
         except LLMCallError:
             raise
+        except json.JSONDecodeError as e:
+            raise LLMCallError(f"LLM 响应 JSON 解析失败: {e}", error_type="format_error") from e
+        except pydantic.ValidationError as e:
+            raise LLMCallError(f"LLM 响应结构校验失败: {e}", error_type="format_error") from e
         except Exception as e:
-            raise LLMCallError(f"LLM 响应解析失败: {e}") from e
+            raise LLMCallError(f"LLM 响应解析失败: {e}", error_type="unknown") from e
 
     @staticmethod
     def _normalize_json_text(raw: str) -> str:

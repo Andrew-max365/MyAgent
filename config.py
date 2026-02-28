@@ -19,3 +19,6 @@ LLM_MODE: str = os.getenv("LLM_MODE", "hybrid")  # rule | llm | hybrid
 
 # API 服务端鉴权 Key（为空则不启用认证，适合本地 Demo；生产环境请务必设置）
 SERVER_API_KEY: str = os.getenv("SERVER_API_KEY", "")
+
+# 生产环境硬性鉴权开关：REQUIRE_AUTH=true 时，若 SERVER_API_KEY 为空则启动时抛出异常
+REQUIRE_AUTH: bool = os.getenv("REQUIRE_AUTH", "false").strip().lower() == "true"
