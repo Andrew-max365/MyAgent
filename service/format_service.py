@@ -62,7 +62,10 @@ def _resolve_labels(blocks, doc, label_mode: str) -> Dict[Any, str]:
         )
         # 兜底：LLM 不可用时回退，保证主流程可用
         rule.setdefault("_warnings", [])
-        rule["_warnings"].append(f"LLM labeling failed, fallback to rule-based: {e}")
+        error_type = getattr(e, "error_type", "unknown")
+        rule["_warnings"].append(
+            f"LLM labeling failed [{error_type}], fallback to rule-based: {e}"
+        )
         return rule
 
 

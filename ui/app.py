@@ -4,6 +4,8 @@ from __future__ import annotations
 import sys
 import os
 
+# 运行时路径补丁，供直接执行（python ui/app.py）时使用。
+# 推荐方式：在项目根目录执行 `pip install -e .` 后，使用 `python -m ui.app` 启动。
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import json

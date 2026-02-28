@@ -112,6 +112,12 @@ python format_docx.py input.docx output.docx --spec specs/academic.yaml --label-
 pip install -r requirements.txt
 ```
 
+> **推荐**：将项目安装为可编辑包后，可直接使用 `python -m ui.app` 启动 Streamlit UI，无需手动修改 `sys.path`：
+> ```bash
+> pip install -e .
+> python -m streamlit run ui/app.py
+> ```
+
 ### 纯规则模式（无需 API Key）
 
 ```bash

@@ -14,9 +14,16 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent.Structura_agent import run_doc_agent_bytes
-from config import LLM_MODE, SERVER_API_KEY
+from config import LLM_MODE, REQUIRE_AUTH, SERVER_API_KEY
 
 logger = logging.getLogger(__name__)
+
+# 生产环境 fail-fast：REQUIRE_AUTH=true 时若 SERVER_API_KEY 未设置则拒绝启动
+if REQUIRE_AUTH and not SERVER_API_KEY:
+    raise RuntimeError(
+        "REQUIRE_AUTH=true 但 SERVER_API_KEY 未设置，服务拒绝启动。"
+        "请通过环境变量 SERVER_API_KEY 提供鉴权密钥，或将 REQUIRE_AUTH 设为 false（仅限本地 Demo）。"
+    )
 
 app = FastAPI(
     title="Structura DOCX Agent API",
