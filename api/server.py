@@ -10,6 +10,8 @@ import zipfile
 from dataclasses import asdict
 from typing import Literal
 
+from pathlib import Path
+
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -31,13 +33,33 @@ def _verify_api_key(x_api_key: str = Header(default="")) -> None:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-def _validate_spec_path(spec_path: str) -> None:
-    """拒绝能逃出 specs/ 目录的路径，防止路径穿越攻击。"""
-    if os.path.isabs(spec_path):
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SPECS_ROOT = (_REPO_ROOT / "specs").resolve()
+
+
+def _resolve_spec_path(spec_path: str) -> str:
+    """校验并解析 spec_path：必须是 specs/ 内的 .yaml/.yml 文件，且不能逃逸（含符号链接）。"""
+    if not spec_path:
+        raise HTTPException(status_code=400, detail="spec_path is required")
+
+    raw = Path(spec_path)
+    if raw.is_absolute():
         raise HTTPException(status_code=400, detail="spec_path must be a relative path within specs/")
-    normalized = os.path.normpath(spec_path)
-    if not (normalized.startswith("specs" + os.sep)):
+
+    normalized = Path(os.path.normpath(spec_path))
+    if normalized.parts[:1] != ("specs",):
         raise HTTPException(status_code=400, detail="spec_path must point within the specs/ directory")
+
+    candidate = (_REPO_ROOT / normalized).resolve()
+    if _SPECS_ROOT not in (candidate, *candidate.parents):
+        raise HTTPException(status_code=400, detail="spec_path must stay within specs/")
+
+    if candidate.suffix.lower() not in {".yaml", ".yml"}:
+        raise HTTPException(status_code=400, detail="spec_path must be a YAML file")
+    if not candidate.is_file():
+        raise HTTPException(status_code=400, detail="spec file does not exist")
+
+    return candidate.relative_to(_REPO_ROOT).as_posix()
 
 
 @app.get("/health")
@@ -54,7 +76,7 @@ async def format_docx_json(
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only .docx files are supported")
 
-    _validate_spec_path(spec_path)
+    spec_path = _resolve_spec_path(spec_path)
 
     input_bytes = await file.read()
     if not input_bytes:
@@ -91,7 +113,7 @@ async def format_docx_bundle(
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only .docx files are supported")
 
-    _validate_spec_path(spec_path)
+    spec_path = _resolve_spec_path(spec_path)
 
     input_bytes = await file.read()
     if not input_bytes:
