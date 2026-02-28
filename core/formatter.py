@@ -20,6 +20,7 @@ from .docx_utils import (
     normalize_mixed_runs,
     set_run_fonts,
 )
+from .numbering import convert_text_lists
 
 
 # =========================
@@ -38,6 +39,15 @@ RE_ABSTRACT = re.compile(r"^\s*(摘要|abstract)\s*[:：]?\s*", re.IGNORECASE)
 RE_KEYWORD = re.compile(r"^\s*(关键词|关键字|keywords?)\s*[:：]?\s*", re.IGNORECASE)
 RE_REFERENCE = re.compile(r"^\s*(参考文献|references?|bibliography)\s*$", re.IGNORECASE)
 ROLE_LABELS_FALLBACK_TO_RULE = {"blank", "unknown"}
+
+# 正文层级列表标记（不是章节标题，而是段落内编号列表项）
+# 注意：RE_SUBTITLE_CN 已捕获 （一） 形式（中文括号数字），这里只捕获阿拉伯数字括号/括号后缀/圈数字/英文字母
+RE_BODY_LIST_PAREN_ARABIC = re.compile(r"^\s*（\d+）")          # （1） （2）
+RE_BODY_LIST_RPAREN = re.compile(r"^\s*\d+[)）]\s")             # 1) 或 1）后接空格
+RE_BODY_LIST_ENCLOSED = re.compile(                              # ①②…⑳
+    r"^\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]"
+)
+RE_BODY_LIST_ALPHA = re.compile(r"^\s*[a-zA-Z][.)]\s", re.ASCII)  # a. A. a) A)
 
 # 段内多行结构（避免误判标题）
 RE_MULTILINE_NUM = re.compile(r"\n\s*\d+(\.\d+)*\s+")
@@ -162,6 +172,13 @@ def detect_role(paragraph) -> str:
     if RE_NUM_DOT.match(t):
         depth = t.split()[0].count(".")
         return "h2" if depth <= 0 else "h3"
+
+    # 正文层级列表项（阿拉伯数字括号、括号后缀、圈数字、英文字母列表）
+    if (RE_BODY_LIST_PAREN_ARABIC.match(t)
+            or RE_BODY_LIST_RPAREN.match(t)
+            or RE_BODY_LIST_ENCLOSED.match(t)
+            or RE_BODY_LIST_ALPHA.match(t)):
+        return "list_item"
 
     return "body"
 
@@ -345,8 +362,9 @@ def _split_body_paragraphs_on_linebreaks(doc, role_getter=None, on_new_paragraph
 
 def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spec):
     """
-    MVP：不处理真编号/列表结构，只做视觉排版（首行缩进、字体、字号、行距、段距、空行清理）。
-    且会把正文中的 '\\n' 拆成多个段落，保证每条都缩进。
+    对文档段落进行排版：首行缩进、字体、字号、行距、段距、空行清理，
+    并把正文中的软回车换行拆为独立段落，以及（可选）将文本编号列表转换为
+    真正的 Word 列表（numPr）。
 
     返回：report(dict) —— 可直接 dump 为 JSON，用于“诊断/修复报告”。
     """
@@ -461,6 +479,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             "delete_blanks_after_titles",
             "split_body_paragraphs_on_linebreaks",
             "apply_formatting",
+            "convert_text_lists_to_numpr",
         ],
         "actions": {},
         "formatted": {"counts": {}},
@@ -626,6 +645,26 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 p.paragraph_format.alignment = body_alignment
             _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
             formatted_counter["unknown_as_body"] += 1
+
+    # 5) 文本编号 → 真实 Word 列表（numPr）转换
+    convert_text_nums = bool(list_cfg.get("convert_text_numbers", True))
+    if convert_text_nums:
+        num_left_twips = int(list_cfg.get("num_left_twips", 720))
+        num_hanging_twips = int(list_cfg.get("num_hanging_twips", 360))
+        min_run_len = int(list_cfg.get("min_run_len", 2))
+        converted_to_numpr = convert_text_lists(
+            doc,
+            iter_all_paragraphs(doc),
+            get_role,
+            is_list_paragraph,
+            is_effectively_blank_paragraph,
+            min_run_len=min_run_len,
+            left_twips=num_left_twips,
+            hanging_twips=num_hanging_twips,
+        )
+    else:
+        converted_to_numpr = 0
+    report["actions"]["text_list_converted_to_numpr"] = converted_to_numpr
 
 
     # ====== 追加诊断提示（让报告更“智能体”）======
