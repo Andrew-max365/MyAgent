@@ -84,7 +84,7 @@ class LLMClient:
             lines = text.splitlines()
             if lines:
                 lines = lines[1:]
-            if lines and lines[-1].strip().startswith("```"):
+            if lines and lines[-1].strip() == "```":
                 lines = lines[:-1]
             text = "\n".join(lines).strip()
         return text
