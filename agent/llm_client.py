@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import List
+from typing import Any, List
 
 import openai
 
@@ -29,21 +29,15 @@ ALLOWED_PARAGRAPH_TYPES = {
 
 PARAGRAPH_TYPE_ALIASES = {
     "title1": "title_1",
-    "title_1": "title_1",
     "heading1": "title_1",
-    "heading_1": "title_1",
     "h1": "title_1",
     "一级标题": "title_1",
     "title2": "title_2",
-    "title_2": "title_2",
     "heading2": "title_2",
-    "heading_2": "title_2",
     "h2": "title_2",
     "二级标题": "title_2",
     "title3": "title_3",
-    "title_3": "title_3",
     "heading3": "title_3",
-    "heading_3": "title_3",
     "h3": "title_3",
     "三级标题": "title_3",
     "正文": "body",
@@ -64,6 +58,7 @@ PARAGRAPH_TYPE_ALIASES = {
     "unk": "unknown",
     "未知": "unknown",
 }
+_WHITESPACE_DASH_PATTERN = re.compile(r"[\s\-]+")
 
 
 class LLMCallError(Exception):
@@ -146,10 +141,11 @@ class LLMClient:
 
     @staticmethod
     def _normalize_paragraph_type(raw_type: str) -> str:
+        """标准化段落类型：直接命中 -> 别名字典 -> 去下划线后二次别名 -> unknown。"""
         if not isinstance(raw_type, str):
             return "unknown"
         text = raw_type.strip().lower()
-        normalized = re.sub(r"[\s\-]+", "_", text)
+        normalized = _WHITESPACE_DASH_PATTERN.sub("_", text)
         if normalized in ALLOWED_PARAGRAPH_TYPES:
             return normalized
         collapsed = normalized.replace("_", "")
@@ -160,7 +156,8 @@ class LLMClient:
         )
 
     @classmethod
-    def _canonicalize_structure_payload(cls, data):
+    def _canonicalize_structure_payload(cls, data: Any) -> Any:
+        """规范化 LLM payload 的 paragraph_type，并在缺失时补 total_paragraphs。"""
         if not isinstance(data, dict):
             return data
         payload = dict(data)
