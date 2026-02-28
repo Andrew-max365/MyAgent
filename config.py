@@ -16,3 +16,6 @@ LLM_TIMEOUT_S: int = int(os.getenv("LLM_TIMEOUT_S", "60"))
 
 # 排版模式：rule（纯规则）| llm（纯大模型）| hybrid（混合，推荐）
 LLM_MODE: str = os.getenv("LLM_MODE", "hybrid")  # rule | llm | hybrid
+
+# API 服务端鉴权 Key（为空则不启用认证，适合本地 Demo；生产环境请务必设置）
+SERVER_API_KEY: str = os.getenv("SERVER_API_KEY", "")

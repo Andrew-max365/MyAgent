@@ -1,6 +1,7 @@
 # core/judge.py
 import re
-from typing import Dict, List, Optional
+import warnings
+from typing import Dict, List
 
 from .parser import Block
 from .docx_utils import iter_all_paragraphs
@@ -40,9 +41,11 @@ def rule_based_labels(blocks: List[Block], doc=None) -> Dict[int, str]:
                     continue
                 labels[b.block_id] = detect_role(p)
             return labels
-        except Exception:
-            # doc 可用但导入/调用失败则退回简易规则
-            pass
+        except Exception as e:
+            warnings.warn(
+                f"[judge] detect_role via doc failed, falling back to regex rules: {e}",
+                stacklevel=2,
+            )
 
     # -------- fallback: regex rules over plain text --------
     for b in blocks:

@@ -68,7 +68,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**说明**：当前 UI 直接调用本地 Agent（不走 API），适合比赛 Demo。")
 
-uploaded = st.file_uploader(' ',type=["docx"])
+uploaded = st.file_uploader("上传 Word 文档（.docx）", type=["docx"])
 
 if uploaded is None:
     st.info("请先上传一个 .docx 文件，Structura会显示诊断报告、结构统计，并提供下载。")
