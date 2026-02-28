@@ -69,9 +69,22 @@ class LLMClient:
         """
         try:
             raw = self.call_raw(paragraphs)
-            data = json.loads(raw)
+            data = json.loads(self._normalize_json_text(raw))
             return DocumentStructure(**data)
         except LLMCallError:
             raise
         except Exception as e:
             raise LLMCallError(f"LLM 响应解析失败: {e}") from e
+
+    @staticmethod
+    def _normalize_json_text(raw: str) -> str:
+        """兼容不同模型端点可能返回的 Markdown 代码块包装。"""
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines:
+                lines = lines[1:]
+            if lines and lines[-1].strip().startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+        return text
