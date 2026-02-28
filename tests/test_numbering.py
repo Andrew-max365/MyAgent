@@ -782,3 +782,101 @@ def test_table_list_item_font_applied_after_numpr_conversion():
                     assert run.font.size == Pt(11), (
                         f"Expected font size 11pt on run {run.text!r}, got {run.font.size}"
                     )
+
+
+# ─── 14. Regression: all consecutive numbered items converted, not just the first ─
+
+def test_all_consecutive_num_dot_items_converted_not_just_first():
+    """Regression: 1./2./3. consecutive items must ALL receive numPr, not only item 1."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("list_item", "1. 第一项内容"),
+        ("list_item", "2. 第二项内容"),
+        ("list_item", "3. 第三项内容"),
+    ])
+
+    report = apply_formatting(doc, blocks, labels, spec)
+    assert report["actions"]["text_list_converted_to_numpr"] == 3, (
+        f"Expected all 3 items converted, got {report['actions']['text_list_converted_to_numpr']}"
+    )
+
+    non_blank = [p for p in iter_all_paragraphs(doc) if not is_effectively_blank_paragraph(p)]
+    assert len(non_blank) == 3
+    for p in non_blank:
+        assert _is_list_p(p), f"Expected numPr on {p.text!r} (first-item-only regression)"
+
+    # All items must share the same numId (one continuous list)
+    num_ids = set()
+    for p in non_blank:
+        ppr = p._p.pPr
+        if ppr is not None:
+            numPr = ppr.find(qn("w:numPr"))
+            if numPr is not None:
+                num_ids.add(numPr.find(qn("w:numId")).get(qn("w:val")))
+    assert len(num_ids) == 1, f"All items should share one numId, got {num_ids}"
+
+
+def test_mixed_labels_all_consecutive_items_converted():
+    """Regression: items 2/3 labeled 'body' must be converted together with item 1 (list_item)."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("list_item", "1. 第一项内容"),  # LLM correctly identified
+        ("body",      "2. 第二项内容"),  # LLM mis-labeled as body
+        ("body",      "3. 第三项内容"),  # LLM mis-labeled as body
+    ])
+
+    report = apply_formatting(doc, blocks, labels, spec)
+    assert report["actions"]["text_list_converted_to_numpr"] == 3, (
+        f"Expected all 3 items converted even with mixed labels, "
+        f"got {report['actions']['text_list_converted_to_numpr']}"
+    )
+
+    non_blank = [p for p in iter_all_paragraphs(doc) if not is_effectively_blank_paragraph(p)]
+    for p in non_blank:
+        assert _is_list_p(p), (
+            f"Expected numPr on {p.text!r}; only-first-item regression detected"
+        )
+
+    # All must share the same numId so the counter is continuous
+    num_ids = set()
+    for p in non_blank:
+        ppr = p._p.pPr
+        if ppr is not None:
+            numPr = ppr.find(qn("w:numPr"))
+            if numPr is not None:
+                num_ids.add(numPr.find(qn("w:numId")).get(qn("w:val")))
+    assert len(num_ids) == 1, (
+        f"All items in the same list group must share one numId, got {num_ids}"
+    )
+
+
+def test_table_cell_rparen_items_all_converted():
+    """Table cell paragraphs with 1) 2) style must ALL be converted to numPr."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell.paragraphs[0].text = "1) 第一条"
+    cell.add_paragraph("2) 第二条")
+    cell.add_paragraph("3) 第三条")
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    # Only label the first item; items 2 and 3 are left unlabeled (simulate LLM partial result)
+    labels = {"_source": "test"}
+    for b in blocks:
+        if b.text == "1) 第一条":
+            labels[b.block_id] = "list_item"
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, (
+        f"Expected all 3 table cell items to have numPr, got {len(list_paras)}"
+    )
