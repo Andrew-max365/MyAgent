@@ -91,8 +91,24 @@ def _insert_paragraph_after(p, text: str):
 
 def detect_role(paragraph) -> str:
     """
-    blank / h1 / h2 / h3 / caption / body
-    注意：我们不做真编号/列表结构，1.2.3. 一律当正文 body。
+    Detect the structural role of a paragraph.
+
+    Returns one of:
+      blank / h1 / h2 / h3 / caption / abstract / keyword / reference /
+      list_item / footer / body
+
+    Rules applied in priority order:
+      1. blank (empty / whitespace-only)
+      2. body  (multi-line numbered block – avoids misclassifying as heading)
+      3. Word heading/footer styles
+      4. Abstract / keyword / reference text patterns
+      5. Caption text pattern (before list_item so captioned lists stay as caption)
+      6. Word list paragraph (numPr)
+      7. （一）-style sub-heading → h3
+      8. 第X章/节/条 patterns → h1/h2/h3
+      9. Chinese numeral enum (一、二、…) → h2
+      10. Numeric outline (1. / 1.1) → h2/h3
+      11. Fallback → body
     """
     if is_effectively_blank_paragraph(paragraph):
         return "blank"
@@ -603,6 +619,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             # unknown：当正文处理，尽量不让段落漏掉缩进/字体统一
             _apply_paragraph_common(p, body_line_spacing, body_before, body_after)
             p.paragraph_format.left_indent = Pt(0)
+            p.paragraph_format.hanging_indent = Pt(0)
             p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
             if body_alignment is not None:
                 p.paragraph_format.alignment = body_alignment

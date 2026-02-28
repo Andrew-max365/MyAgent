@@ -9,7 +9,7 @@ from .docx_utils import iter_all_paragraphs
 # 兼容：无 doc 情况下的简易规则（保留）
 RE_H1 = re.compile(r"^\s*第[一二三四五六七八九十百千0-9]+章")
 RE_H2 = re.compile(r"^\s*第[一二三四五六七八九十百千0-9]+节")
-RE_CN_ENUM = re.compile(r"^\s*[一二三四五六七八九十]+、")
+RE_CN_ENUM = re.compile(r"^\s*[一二三四五六七八九十百千万]+、")
 RE_NUM_DOT = re.compile(r"^\s*\d+(\.\d+){0,3}\s+")  # 1 / 1.1 / 1.1.1
 
 def rule_based_labels(blocks: List[Block], doc=None) -> Dict[int, str]:
