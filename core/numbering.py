@@ -18,6 +18,7 @@ from docx.text.paragraph import Paragraph
 
 _RE_PAREN_ARABIC = re.compile(r"^(\s*（)(\d+)(）)")           # （1）
 _RE_RPAREN       = re.compile(r"^(\s*)(\d+)([)）])(\s)")      # 1) or 1）<space>
+_RE_NUM_DOT      = re.compile(r"^(\s*)(\d+)(\. )")             # 1. text
 _RE_ENCLOSED     = re.compile(
     r"^\s*([①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳])"
 )
@@ -32,12 +33,13 @@ _ENCLOSED_ORD: Dict[str, int] = {
 }
 
 # Supported format keys
-LIST_FMTS = ("paren_arabic", "rparen", "enclosed", "alpha_lower", "alpha_upper")
+LIST_FMTS = ("paren_arabic", "rparen", "num_dot", "enclosed", "alpha_lower", "alpha_upper")
 
 # Map format key → (w:numFmt value, w:lvlText value)
 _FMT_TO_WORD: Dict[str, Tuple[str, str]] = {
     "paren_arabic": ("decimal",                "（%1）"),  # full-width parentheses
     "rparen":       ("decimal",                "%1)"),
+    "num_dot":      ("decimal",                "%1."),    # 1. 2. 3.
     "enclosed":     ("decimalEnclosedCircle",   "%1"),
     "alpha_lower":  ("lowerLetter",             "%1."),
     "alpha_upper":  ("upperLetter",             "%1."),
@@ -63,6 +65,9 @@ def detect_text_list_prefix(text: str) -> Optional[Tuple[str, int, int]]:
     m = _RE_RPAREN.match(t)
     if m:
         return ("rparen", int(m.group(2)), m.end())
+    m = _RE_NUM_DOT.match(t)
+    if m:
+        return ("num_dot", int(m.group(2)), m.end())
     m = _RE_ENCLOSED.match(t)
     if m:
         ch = m.group(1)

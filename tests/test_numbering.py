@@ -411,3 +411,139 @@ def test_detect_role_cn_paren_subtitle_still_h3():
     doc = Document()
     assert detect_role(doc.add_paragraph("（一）子标题内容")) == "h3"
     assert detect_role(doc.add_paragraph("（三）另一子节")) == "h3"
+
+
+# ─── 8. num_dot format (1. text) ─────────────────────────────────────────────
+
+def test_detect_text_list_prefix_num_dot():
+    result = detect_text_list_prefix("1. 第一项内容")
+    assert result is not None
+    fmt, ordinal, prefix_len = result
+    assert fmt == "num_dot"
+    assert ordinal == 1
+    assert prefix_len == 3  # "1" + "." + " " = 3 chars
+
+
+def test_detect_text_list_prefix_num_dot_multi_digit():
+    result = detect_text_list_prefix("10. 第十项内容")
+    assert result is not None
+    fmt, ordinal, prefix_len = result
+    assert fmt == "num_dot"
+    assert ordinal == 10
+    assert prefix_len == 4  # "10" + "." + " " = 4 chars
+
+
+def test_detect_text_list_prefix_num_dot_not_multilevel():
+    """1.1 text (multi-level) must NOT match num_dot."""
+    assert detect_text_list_prefix("1.1 多级标题") is None
+    assert detect_text_list_prefix("2.3 另一节") is None
+
+
+def test_detect_role_body_list_num_dot():
+    """1. text style should be classified as list_item."""
+    doc = Document()
+    assert detect_role(doc.add_paragraph("1. 第一点内容")) == "list_item"
+    assert detect_role(doc.add_paragraph("2. 第二点内容")) == "list_item"
+    assert detect_role(doc.add_paragraph("10. 第十点内容")) == "list_item"
+
+
+def test_detect_role_multilevel_not_list_item():
+    """1.1 text (multi-level) must NOT be list_item (stays h3 via RE_NUM_DOT)."""
+    doc = Document()
+    assert detect_role(doc.add_paragraph("1.1 二级标题")) == "h3"
+
+
+def test_convert_text_lists_num_dot():
+    """num_dot format (1. text) should be converted to real Word list."""
+    doc = Document()
+    texts = ["1. 第一项", "2. 第二项", "3. 第三项"]
+    for t in texts:
+        doc.add_paragraph(t)
+
+    def _is_list_p(p):
+        try:
+            ppr = p._p.pPr
+            return bool(ppr is not None and getattr(ppr, "numPr", None) is not None)
+        except Exception:
+            return False
+
+    paras = iter_all_paragraphs(doc)
+    converted = convert_text_lists(
+        doc, paras,
+        get_role=lambda _: "list_item",
+        is_list_paragraph_fn=_is_list_p,
+        is_blank_fn=is_effectively_blank_paragraph,
+        min_run_len=2,
+    )
+    assert converted == 3
+    for p in iter_all_paragraphs(doc):
+        assert _is_list_p(p), f"Paragraph {p.text!r} should have numPr"
+        # No numeric prefix should remain (1., 2., 3.)
+        import re as _re
+        assert not _re.match(r"^\d+\. ", p.text), f"Prefix not stripped: {p.text!r}"
+
+
+def test_apply_formatting_converts_num_dot_lists():
+    """apply_formatting must convert 1. 2. 3. style lists to real numPr."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("list_item", "1. 第一项内容"),
+        ("list_item", "2. 第二项内容"),
+        ("list_item", "3. 第三项内容"),
+    ])
+
+    report = apply_formatting(doc, blocks, labels, spec)
+    assert report["actions"]["text_list_converted_to_numpr"] == 3
+
+    for p in iter_all_paragraphs(doc):
+        if not is_effectively_blank_paragraph(p):
+            ppr = p._p.pPr
+            assert ppr is not None and ppr.find(qn("w:numPr")) is not None
+
+
+# ─── 9. table cell formatting ────────────────────────────────────────────────
+
+def test_table_cell_body_no_first_line_indent():
+    """Body paragraphs inside table cells must not receive first-line indent."""
+    from core.formatter import apply_formatting
+    from core.parser import Block
+    from docx.shared import Pt
+
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    # Replace the default empty paragraph with body-like content
+    p = cell.paragraphs[0]
+    p.text = "这是表格内容"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=para.text, paragraph_index=i)
+        for i, para in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    cell_p = table.cell(0, 0).paragraphs[0]
+    fli = cell_p.paragraph_format.first_line_indent
+    # Should be 0 (no indent) or None (not set), NOT Pt(24) or similar
+    assert fli is None or fli == 0, f"Expected no first-line indent in cell, got {fli}"
+
+
+def test_autofit_tables_action_in_report():
+    """apply_formatting report must include tables_autofitted count."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    doc = Document()
+    doc.add_table(rows=2, cols=2)
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+    report = apply_formatting(doc, blocks, labels, spec)
+    assert "tables_autofitted" in report["actions"]
+    assert report["actions"]["tables_autofitted"] == 1
