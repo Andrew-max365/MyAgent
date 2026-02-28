@@ -13,11 +13,13 @@ Coverage:
 """
 
 from pathlib import Path
+import copy
 import re
 import sys
 
 from docx import Document
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -30,7 +32,7 @@ from core.numbering import (
 )
 from core.formatter import apply_formatting, detect_role
 from core.docx_utils import iter_all_paragraphs, is_effectively_blank_paragraph
-from core.spec import load_spec
+from core.spec import load_spec, Spec
 from core.parser import Block
 
 SPECS_DIR = Path(__file__).resolve().parents[1] / "specs"
@@ -210,7 +212,7 @@ def test_convert_text_lists_converts_group():
         doc.add_paragraph(t)
 
     paras = iter_all_paragraphs(doc)
-    converted = convert_text_lists(
+    converted, _ = convert_text_lists(
         doc, paras,
         get_role=lambda _: "list_item",
         is_list_paragraph_fn=_is_list_p,
@@ -232,7 +234,7 @@ def test_convert_text_lists_respects_min_run_len():
     doc.add_paragraph("这是正文段落。")
 
     paras = iter_all_paragraphs(doc)
-    converted = convert_text_lists(
+    converted, _ = convert_text_lists(
         doc, paras,
         get_role=lambda p: "list_item" if p.text.startswith("（") else "body",
         is_list_paragraph_fn=_is_list_p,
@@ -257,7 +259,7 @@ def test_convert_text_lists_skips_existing_numpr():
     doc.add_paragraph("（2）第二项")
 
     paras = iter_all_paragraphs(doc)
-    converted = convert_text_lists(
+    converted, _ = convert_text_lists(
         doc, paras,
         get_role=lambda _: "list_item",
         is_list_paragraph_fn=_is_list_p,
@@ -276,7 +278,7 @@ def test_convert_different_formats_form_separate_groups():
     doc.add_paragraph("②圈二")
 
     paras = iter_all_paragraphs(doc)
-    converted = convert_text_lists(
+    converted, _ = convert_text_lists(
         doc, paras,
         get_role=lambda _: "list_item",
         is_list_paragraph_fn=_is_list_p,
@@ -473,7 +475,7 @@ def test_convert_text_lists_num_dot():
             return False
 
     paras = iter_all_paragraphs(doc)
-    converted = convert_text_lists(
+    converted, _ = convert_text_lists(
         doc, paras,
         get_role=lambda _: "list_item",
         is_list_paragraph_fn=_is_list_p,
@@ -617,7 +619,7 @@ def test_convert_text_lists_on_doc_without_numbering_part():
         doc.add_paragraph(text)
 
     paras = iter_all_paragraphs(doc)
-    converted = convert_text_lists(
+    converted, _ = convert_text_lists(
         doc,
         paras,
         get_role=lambda _: "list_item",
@@ -640,7 +642,7 @@ def test_convert_text_lists_min_run_len_1_converts_single_item():
     doc.add_paragraph("这是正文段落。")
 
     paras = iter_all_paragraphs(doc)
-    converted = convert_text_lists(
+    converted, _ = convert_text_lists(
         doc,
         paras,
         get_role=lambda p: "list_item" if p.text.startswith("（") else "body",
@@ -694,3 +696,89 @@ def test_strip_list_text_prefix_no_runs_is_noop():
     # Should not raise
     strip_list_text_prefix(p, 3)
     # Text is empty / unchanged — no crash is the key assertion
+
+
+# ─── 13. New bug-fix tests ────────────────────────────────────────────────────
+
+def test_body_role_numbered_paragraph_gets_converted():
+    """A paragraph labeled 'body' but starting with （1） must be converted to numPr."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("body", "（1）内容很长的正文编号段落"),
+        ("body", "（2）第二条正文编号内容"),
+    ])
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    # At least the LLM-direct path should have converted them
+    total_converted = (
+        report["actions"]["llm_direct_list_converted"]
+        + report["actions"]["text_list_converted_to_numpr"]
+    )
+    assert total_converted == 2, f"Expected 2 converted, got {total_converted}"
+
+    # Both paragraphs must now carry real numPr
+    for p in iter_all_paragraphs(doc):
+        if not is_effectively_blank_paragraph(p):
+            assert _is_list_p(p), f"Expected numPr on {p.text!r}"
+            assert "（" not in p.text, f"Prefix still present in {p.text!r}"
+
+
+def test_list_item_font_applied_after_numpr_conversion():
+    """Paragraphs converted to numPr must have their runs' font set per list_item spec."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    raw = copy.deepcopy(spec.raw)
+    raw["list_item"]["font_size_pt"] = 14
+    raw["fonts"]["zh"] = "仿宋"
+    spec_mod = Spec(raw=raw)
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("list_item", "（1）第一条"),
+        ("list_item", "（2）第二条"),
+    ])
+
+    apply_formatting(doc, blocks, labels, spec_mod)
+
+    for p in iter_all_paragraphs(doc):
+        if not is_effectively_blank_paragraph(p):
+            assert _is_list_p(p), f"Expected numPr on {p.text!r}"
+            for run in p.runs:
+                if run.text:
+                    assert run.font.size == Pt(14), (
+                        f"Expected font size 14pt on run {run.text!r}, got {run.font.size}"
+                    )
+
+
+def test_table_list_item_font_applied_after_numpr_conversion():
+    """Table cell paragraphs converted to numPr must also get list_item font settings."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    raw = copy.deepcopy(spec.raw)
+    raw["list_item"]["font_size_pt"] = 11
+    spec_mod = Spec(raw=raw)
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    # Clear default empty paragraph and add two list-style paragraphs
+    cell.paragraphs[0].text = "（1）表格列表项一"
+    cell.add_paragraph("（2）表格列表项二")
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    # Label the table cell paragraphs as list_item
+    labels = {b.block_id: "list_item" for b in blocks if b.text.startswith("（")}
+    labels["_source"] = "test"
+
+    apply_formatting(doc, blocks, labels, spec_mod)
+
+    for p in iter_all_paragraphs(doc):
+        if not is_effectively_blank_paragraph(p) and _is_list_p(p):
+            for run in p.runs:
+                if run.text:
+                    assert run.font.size == Pt(11), (
+                        f"Expected font size 11pt on run {run.text!r}, got {run.font.size}"
+                    )

@@ -280,7 +280,7 @@ def convert_text_lists(
     min_run_len: int = 1,
     left_twips: int = 720,
     hanging_twips: int = 360,
-) -> int:
+) -> Tuple[int, List[Paragraph]]:
     """
     Scan *paragraphs* for runs of consecutive text-based ``list_item``
     paragraphs (i.e. those whose text starts with a recognised list marker
@@ -298,7 +298,8 @@ def convert_text_lists(
     will be converted.  Set to 2 or higher to require at least that many
     consecutive items before converting.
 
-    Returns the total number of paragraphs converted.
+    Returns ``(converted_count, converted_paragraphs)`` where
+    *converted_paragraphs* is the list of paragraphs that received ``numPr``.
     """
     # Group consecutive text-based list_item paragraphs by format.
     # A group resets whenever: blank para, non-list_item role, already-real
@@ -347,6 +348,7 @@ def convert_text_lists(
 
     # Convert qualifying groups
     converted = 0
+    converted_paras: List[Paragraph] = []
     for group in groups:
         if len(group) < min_run_len:
             continue
@@ -356,5 +358,6 @@ def convert_text_lists(
             apply_numpr(p, num_id)
             strip_list_text_prefix(p, prefix_len)
             converted += 1
+            converted_paras.append(p)
 
-    return converted
+    return converted, converted_paras

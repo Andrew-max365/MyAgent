@@ -417,6 +417,9 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     list_cfg = cfg.get("list_item", {})
     list_left_indent = float(list_cfg.get("left_indent_pt", 18))
     list_hanging_indent = float(list_cfg.get("hanging_indent_pt", 18))
+    list_size = float(list_cfg.get("font_size_pt", body_size))
+    list_bold = bool(list_cfg.get("bold", False))
+    list_italic = bool(list_cfg.get("italic", False))
 
     body_alignment = _resolve_alignment(paragraph_cfg.get("alignment", "justify"))
 
@@ -682,6 +685,8 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     # 4.5) LLM 直接驱动的 list_item 编号转换（绕开 min_run_len 和时序限制）
     # 遍历 blocks，找出被 LLM 标注为 list_item 的段落，直接转换为 Word numPr
     # 不受 min_run_len 限制，单条也转换；按格式分组、每组独立 num_id
+    # 同时扫描 body/unknown 段落：若检测到编号前缀也一并纳入，修复 LLM 误判场景
+    # 明确排除标题/题注等结构性角色，避免将章节编号误判为列表
     convert_text_nums = bool(list_cfg.get("convert_text_numbers", True))
     if convert_text_nums:
         _num_left_twips = int(list_cfg.get("num_left_twips", 720))
@@ -689,16 +694,21 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
 
         llm_driven_items = []
         for b in blocks:
-            if labels.get(b.block_id) == "list_item":
-                p = para_by_index.get(b.paragraph_index)
-                if p is None or is_list_paragraph(p):
-                    # Skip paragraphs that already carry real numPr (already a
-                    # Word list), so we don't create a duplicate numbering def
-                    continue
-                result = detect_text_list_prefix(p.text or "")
-                if result:
-                    fmt, _, prefix_len = result
-                    llm_driven_items.append((p, fmt, prefix_len))
+            p = para_by_index.get(b.paragraph_index)
+            if p is None or is_list_paragraph(p):
+                # Skip paragraphs that already carry real numPr (already a
+                # Word list), so we don't create a duplicate numbering def
+                continue
+            role = labels.get(b.block_id, "")
+            # Include LLM-labeled list_item AND body/unknown paragraphs with
+            # a detectable numeric prefix; exclude structural roles (headings,
+            # captions, abstracts, etc.) to avoid false positives.
+            if role not in ("list_item", "body", "unknown", ""):
+                continue
+            result = detect_text_list_prefix(p.text or "")
+            if result:
+                fmt, _, prefix_len = result
+                llm_driven_items.append((p, fmt, prefix_len))
 
         llm_driven_items.sort(key=lambda x: x[1])
         llm_direct_converted = 0
@@ -708,17 +718,26 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             for p, _fmt, prefix_len in grp:
                 apply_numpr(p, num_id)
                 strip_list_text_prefix(p, prefix_len)
+                # Sync font/size after numPr conversion (step 4 has already run)
+                normalize_mixed_runs(p)
+                for run in iter_paragraph_runs(p):
+                    run.font.size = Pt(list_size)
+                    run.font.bold = list_bold
+                    run.font.italic = list_italic
+                    set_run_fonts(run, zh_font=zh_font, en_font=en_font)
                 llm_direct_converted += 1
     else:
         llm_direct_converted = 0
     report["actions"]["llm_direct_list_converted"] = llm_direct_converted
 
     # 5) 文本编号 → 真实 Word 列表（numPr）转换
+    # 注：步骤 4.5 已转换的段落带有 numPr，is_list_paragraph 返回 True，
+    # convert_text_lists 内部会跳过它们，不会重复转换。
     if convert_text_nums:
         num_left_twips = int(list_cfg.get("num_left_twips", 720))
         num_hanging_twips = int(list_cfg.get("num_hanging_twips", 360))
         min_run_len = int(list_cfg.get("min_run_len", 2))
-        converted_to_numpr = convert_text_lists(
+        converted_to_numpr, step5_converted_paras = convert_text_lists(
             doc,
             iter_all_paragraphs(doc),
             get_role,
@@ -728,6 +747,14 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             left_twips=num_left_twips,
             hanging_twips=num_hanging_twips,
         )
+        # Sync font/size for paragraphs converted in this step
+        for p in step5_converted_paras:
+            normalize_mixed_runs(p)
+            for run in iter_paragraph_runs(p):
+                run.font.size = Pt(list_size)
+                run.font.bold = list_bold
+                run.font.italic = list_italic
+                set_run_fonts(run, zh_font=zh_font, en_font=en_font)
     else:
         converted_to_numpr = 0
     report["actions"]["text_list_converted_to_numpr"] = converted_to_numpr
