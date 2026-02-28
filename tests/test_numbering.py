@@ -1029,3 +1029,75 @@ def test_two_table_cells_get_independent_numids():
     assert ids1 != ids2, (
         f"Cell 1 and cell 2 must have different numIds (got the same: {ids1})"
     )
+
+
+def test_apply_formatting_converts_all_table_linebreak_number_items():
+    """Table-cell list text split by linebreaks should all become numPr paragraphs."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    p = cell.paragraphs[0]
+    p.text = "1）第一条\n2）第二条\n3）第三条"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=para.text, paragraph_index=i)
+        for i, para in enumerate(paras)
+    ]
+    labels = {blocks[0].block_id: "list_item", "_source": "test"}
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    assert report["actions"]["text_list_converted_to_numpr"] == 3
+    cell_paras = table.cell(0, 0).paragraphs
+    assert len(cell_paras) == 3
+    for para in cell_paras:
+        assert _is_list_p(para), f"Expected numPr on {para.text!r}"
+        assert not re.match(r"^\s*\d+[)）]", para.text), f"Prefix not stripped: {para.text!r}"
+
+
+def test_create_list_num_id_writes_lvl_rpr_font_settings():
+    """Numbering definition should carry lvl/rPr so list marker font follows spec."""
+    doc = Document()
+    num_id = create_list_num_id(
+        doc,
+        "rparen",
+        zh_font="仿宋_GB2312",
+        en_font="Times New Roman",
+        size_pt=14,
+        bold=False,
+        italic=False,
+    )
+
+    nelem = doc.part.numbering_part._element
+    target_num = None
+    for child in nelem:
+        if child.tag == qn("w:num") and child.get(qn("w:numId")) == str(num_id):
+            target_num = child
+            break
+    assert target_num is not None
+
+    abs_id = target_num.find(qn("w:abstractNumId")).get(qn("w:val"))
+    abs_node = None
+    for child in nelem:
+        if child.tag == qn("w:abstractNum") and child.get(qn("w:abstractNumId")) == abs_id:
+            abs_node = child
+            break
+    assert abs_node is not None
+
+    lvl = abs_node.find(qn("w:lvl"))
+    assert lvl is not None
+    rPr = lvl.find(qn("w:rPr"))
+    assert rPr is not None
+
+    rFonts = rPr.find(qn("w:rFonts"))
+    assert rFonts is not None
+    assert rFonts.get(qn("w:eastAsia")) == "仿宋_GB2312"
+    assert rFonts.get(qn("w:ascii")) == "Times New Roman"
+    assert rFonts.get(qn("w:hAnsi")) == "Times New Roman"
+
+    sz = rPr.find(qn("w:sz"))
+    assert sz is not None
+    assert sz.get(qn("w:val")) == "28"

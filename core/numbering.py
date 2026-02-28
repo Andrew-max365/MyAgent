@@ -142,7 +142,17 @@ def _next_free_id(nelem) -> int:
     return max(used, default=0) + 1
 
 
-def _build_abstractNum(abs_id: int, fmt: str, left_twips: int, hanging_twips: int):
+def _build_abstractNum(
+    abs_id: int,
+    fmt: str,
+    left_twips: int,
+    hanging_twips: int,
+    zh_font: Optional[str] = None,
+    en_font: Optional[str] = None,
+    size_pt: Optional[float] = None,
+    bold: Optional[bool] = None,
+    italic: Optional[bool] = None,
+):
     """Build a ``w:abstractNum`` XML element for a single-level list."""
     num_fmt_val, lvl_text_val = _FMT_TO_WORD[fmt]
 
@@ -179,6 +189,41 @@ def _build_abstractNum(abs_id: int, fmt: str, left_twips: int, hanging_twips: in
     pPr.append(ind)
     lvl.append(pPr)
 
+    # Ensure list marker glyphs follow configured fonts/size rather than Word defaults.
+    if zh_font or en_font or size_pt is not None or bold is not None or italic is not None:
+        rPr = OxmlElement("w:rPr")
+
+        if zh_font or en_font:
+            rFonts = OxmlElement("w:rFonts")
+            if en_font:
+                rFonts.set(qn("w:ascii"), en_font)
+                rFonts.set(qn("w:hAnsi"), en_font)
+                rFonts.set(qn("w:cs"), en_font)
+            if zh_font:
+                rFonts.set(qn("w:eastAsia"), zh_font)
+            rPr.append(rFonts)
+
+        if size_pt is not None:
+            sz_val = str(max(2, int(round(float(size_pt) * 2))))
+            sz = OxmlElement("w:sz")
+            sz.set(qn("w:val"), sz_val)
+            rPr.append(sz)
+            szCs = OxmlElement("w:szCs")
+            szCs.set(qn("w:val"), sz_val)
+            rPr.append(szCs)
+
+        if bold is not None:
+            b = OxmlElement("w:b")
+            b.set(qn("w:val"), "1" if bool(bold) else "0")
+            rPr.append(b)
+
+        if italic is not None:
+            i = OxmlElement("w:i")
+            i.set(qn("w:val"), "1" if bool(italic) else "0")
+            rPr.append(i)
+
+        lvl.append(rPr)
+
     abstractNum.append(lvl)
     return abstractNum
 
@@ -206,7 +251,17 @@ def _insert_before_first_num(nelem, new_abstractNum):
         nelem.append(new_abstractNum)
 
 
-def create_list_num_id(doc, fmt: str, left_twips: int = 720, hanging_twips: int = 360) -> int:
+def create_list_num_id(
+    doc,
+    fmt: str,
+    left_twips: int = 720,
+    hanging_twips: int = 360,
+    zh_font: Optional[str] = None,
+    en_font: Optional[str] = None,
+    size_pt: Optional[float] = None,
+    bold: Optional[bool] = None,
+    italic: Optional[bool] = None,
+) -> int:
     """
     Add a new single-level numbered list definition to the document's numbering
     part for the given ``fmt`` (one of :data:`LIST_FMTS`).
@@ -216,7 +271,17 @@ def create_list_num_id(doc, fmt: str, left_twips: int = 720, hanging_twips: int 
     nelem = _numbering_element(doc)
     new_id = _next_free_id(nelem)
 
-    abs_num = _build_abstractNum(new_id, fmt, left_twips, hanging_twips)
+    abs_num = _build_abstractNum(
+        new_id,
+        fmt,
+        left_twips,
+        hanging_twips,
+        zh_font=zh_font,
+        en_font=en_font,
+        size_pt=size_pt,
+        bold=bold,
+        italic=italic,
+    )
     _insert_before_first_num(nelem, abs_num)
 
     num = _build_num(new_id, new_id)
@@ -289,6 +354,11 @@ def convert_text_lists(
     min_run_len: int = 1,
     left_twips: int = 720,
     hanging_twips: int = 360,
+    zh_font: Optional[str] = None,
+    en_font: Optional[str] = None,
+    size_pt: Optional[float] = None,
+    bold: Optional[bool] = None,
+    italic: Optional[bool] = None,
 ) -> Tuple[int, List[Paragraph]]:
     """
     Scan *paragraphs* for runs of consecutive paragraphs whose text begins
@@ -406,7 +476,17 @@ def convert_text_lists(
         if len(group) < min_run_len:
             continue
         fmt = group[0][1]
-        num_id = create_list_num_id(doc, fmt, left_twips, hanging_twips)
+        num_id = create_list_num_id(
+            doc,
+            fmt,
+            left_twips,
+            hanging_twips,
+            zh_font=zh_font,
+            en_font=en_font,
+            size_pt=size_pt,
+            bold=bold,
+            italic=italic,
+        )
         for p, _fmt, _ord, prefix_len in group:
             apply_numpr(p, num_id)
             strip_list_text_prefix(p, prefix_len)
