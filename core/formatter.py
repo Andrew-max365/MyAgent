@@ -48,9 +48,11 @@ RE_BODY_LIST_ENCLOSED = re.compile(                              # ①②…⑳
     r"^\s*[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]"
 )
 RE_BODY_LIST_ALPHA = re.compile(r"^\s*[a-zA-Z][.)]\s", re.ASCII)  # a. A. a) A)
+RE_BODY_LIST_NUM_DOT = re.compile(r"^\s*\d+\.\s")                 # 1. 2. 3. (single-level)
 
 # 段内多行结构（避免误判标题）
-RE_MULTILINE_NUM = re.compile(r"\n\s*\d+(\.\d+)*\s+")
+# 匹配嵌入换行后的数字编号（1 text、1. text、1.1 text 等），将整段保留为 body 以便后续拆段
+RE_MULTILINE_NUM = re.compile(r"\n\s*\d+(?:\.\d+)*\.?\s+")
 RE_MULTILINE_SUB = re.compile(r"\n\s*（[一二三四五六七八九十]+）")
 
 
@@ -65,6 +67,23 @@ def is_list_paragraph(p: Paragraph) -> bool:
         return bool(ppr is not None and getattr(ppr, 'numPr', None) is not None)
     except Exception:
         return False
+
+def _is_in_table_cell(p: Paragraph) -> bool:
+    """True if paragraph lives inside a table cell (w:tc element)."""
+    from docx.oxml.ns import qn as _qn
+    parent = p._p.getparent()
+    return parent is not None and parent.tag == _qn("w:tc")
+
+def _autofit_tables(doc) -> int:
+    """Set all top-level tables to auto-fit window width. Returns count."""
+    count = 0
+    for table in doc.tables:
+        try:
+            table.autofit = True
+            count += 1
+        except Exception:
+            pass
+    return count
 
 def looks_like_multiline_numbered_block(text: str) -> bool:
     t = text or ""
@@ -173,11 +192,12 @@ def detect_role(paragraph) -> str:
         depth = t.split()[0].count(".")
         return "h2" if depth <= 0 else "h3"
 
-    # 正文层级列表项（阿拉伯数字括号、括号后缀、圈数字、英文字母列表）
+    # 正文层级列表项（阿拉伯数字括号、括号后缀、圈数字、英文字母列表、单层数字点号）
     if (RE_BODY_LIST_PAREN_ARABIC.match(t)
             or RE_BODY_LIST_RPAREN.match(t)
             or RE_BODY_LIST_ENCLOSED.match(t)
-            or RE_BODY_LIST_ALPHA.match(t)):
+            or RE_BODY_LIST_ALPHA.match(t)
+            or RE_BODY_LIST_NUM_DOT.match(t)):
         return "list_item"
 
     return "body"
@@ -548,6 +568,12 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 p.paragraph_format.hanging_indent = Pt(list_hanging_indent)
                 p.paragraph_format.first_line_indent = Pt(0)
                 formatted_counter["list_body"] += 1
+            elif _is_in_table_cell(p):
+                # 表格单元格内正文：不添加首行缩进，避免窄列中显示异常
+                p.paragraph_format.left_indent = Pt(0)
+                p.paragraph_format.hanging_indent = Pt(0)
+                p.paragraph_format.first_line_indent = Pt(0)
+                formatted_counter["table_body"] += 1
             else:
                 p.paragraph_format.left_indent = Pt(0)
                 p.paragraph_format.hanging_indent = Pt(0)
@@ -665,6 +691,10 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     else:
         converted_to_numpr = 0
     report["actions"]["text_list_converted_to_numpr"] = converted_to_numpr
+
+    # 6) 表格自适应页宽
+    tables_autofitted = _autofit_tables(doc)
+    report["actions"]["tables_autofitted"] = tables_autofitted
 
 
     # ====== 追加诊断提示（让报告更“智能体”）======
