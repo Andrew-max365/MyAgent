@@ -36,6 +36,7 @@ RE_NUM_DOT = re.compile(r"^\s*\d+(\.\d+){0,3}\s+")
 RE_ABSTRACT = re.compile(r"^\s*(摘要|abstract)\s*[:：]?\s*", re.IGNORECASE)
 RE_KEYWORD = re.compile(r"^\s*(关键词|关键字|keywords?)\s*[:：]?\s*", re.IGNORECASE)
 RE_REFERENCE = re.compile(r"^\s*(参考文献|references?|bibliography)\s*$", re.IGNORECASE)
+ROLE_LABELS_FALLBACK_TO_RULE = {"blank", "unknown"}
 
 # 段内多行结构（避免误判标题）
 RE_MULTILINE_NUM = re.compile(r"\n\s*\d+(\.\d+)*\s+")
@@ -365,7 +366,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
 
     for b in blocks:
         role = labels.get(b.block_id)
-        if not role or role in ("blank", "unknown"):
+        if not role or role in ROLE_LABELS_FALLBACK_TO_RULE:
             continue
         p = para_by_index.get(b.paragraph_index)
         if p is not None:

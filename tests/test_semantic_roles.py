@@ -36,6 +36,13 @@ def _make_doc_with_roles(role_texts: list) -> tuple:
     return doc, blocks, labels
 
 
+def _mark_paragraph_as_numbered_list(paragraph) -> None:
+    """Mark a paragraph as a numbered list item via numPr XML for detect_role tests."""
+    num_pr = paragraph._p.get_or_add_pPr().get_or_add_numPr()
+    num_pr.get_or_add_ilvl().val = 0
+    num_pr.get_or_add_numId().val = 1
+
+
 def test_semantic_roles_formatted_not_as_unknown():
     """abstract/keyword/reference/footer/list_item must appear in formatted counts, not unknown_as_body."""
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
@@ -87,16 +94,15 @@ def test_abstract_italic_in_default_spec():
     assert spec.raw["abstract"]["italic"] is True
 
 
-def test_detect_role_semantic_text_and_list_item():
+def test_detect_role_semantic_patterns():
+    """detect_role should recognize semantic text patterns and numbered list paragraphs."""
     doc = Document()
     p_abs = doc.add_paragraph("摘要：这是摘要内容。")
     p_kw = doc.add_paragraph("关键词：测试；排版")
     p_ref = doc.add_paragraph("参考文献")
     p_list = doc.add_paragraph("第一条")
 
-    num_pr = p_list._p.get_or_add_pPr().get_or_add_numPr()
-    num_pr.get_or_add_ilvl().val = 0
-    num_pr.get_or_add_numId().val = 1
+    _mark_paragraph_as_numbered_list(p_list)
 
     assert detect_role(p_abs) == "abstract"
     assert detect_role(p_kw) == "keyword"
@@ -104,7 +110,16 @@ def test_detect_role_semantic_text_and_list_item():
     assert detect_role(p_list) == "list_item"
 
 
+def test_detect_role_semantic_patterns_edge_variants():
+    """detect_role should support case and punctuation variants for semantic patterns."""
+    doc = Document()
+    assert detect_role(doc.add_paragraph("ABSTRACT This is abstract content.")) == "abstract"
+    assert detect_role(doc.add_paragraph("Keywords test, parser")) == "keyword"
+    assert detect_role(doc.add_paragraph("  references  ")) == "reference"
+
+
 def test_unknown_label_falls_back_to_semantic_detect_role():
+    """unknown labels should fall back to semantic detect_role instead of unknown_as_body."""
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
     role_texts = [("unknown", "摘要：这里是摘要内容。")]
     doc, blocks, labels = _make_doc_with_roles(role_texts)
