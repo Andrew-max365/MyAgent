@@ -104,3 +104,5 @@ list_item:
   num_hanging_twips: 360
   # 至少连续几条才认为是列表（避免误伤单独的"1."）
   min_run_len: 2
+  # 将文本编号标记（（1）、①、1) 等）转换为 Word 真实列表（numPr）
+  convert_text_numbers: true

@@ -166,3 +166,77 @@ def test_detect_role_docstring_covers_all_return_values():
         assert role in doc_str, (
             f"detect_role docstring missing return value {role!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Fix 5: hyperlink runs (URLs) get their fonts applied
+# ---------------------------------------------------------------------------
+
+def test_hyperlink_run_font_applied():
+    """Runs inside w:hyperlink elements (e.g. URLs) must also get their font
+    updated by apply_formatting — they were previously skipped because
+    paragraph.runs does not include hyperlink-child runs."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from core.docx_utils import iter_paragraph_runs
+
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    en_font = spec.raw["fonts"]["en"]
+
+    doc = Document()
+    p = doc.add_paragraph("正文前缀 ")
+
+    # Manually embed a hyperlink run simulating URL text inside w:hyperlink
+    hyperlink = OxmlElement("w:hyperlink")
+    r_elem = OxmlElement("w:r")
+    t_elem = OxmlElement("w:t")
+    t_elem.text = "https://example.com"
+    r_elem.append(t_elem)
+    hyperlink.append(r_elem)
+    p._p.append(hyperlink)
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [Block(block_id=1, kind="paragraph", text=paras[0].text, paragraph_index=0)]
+    labels = {1: "body", "_source": "test"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    # After formatting, ALL runs (including hyperlink runs) should have en_font
+    all_runs = list(iter_paragraph_runs(iter_all_paragraphs(doc)[0]))
+    assert len(all_runs) >= 1, "Expected at least one run after formatting"
+    for run in all_runs:
+        rpr = run._element.rPr
+        assert rpr is not None, f"Run {run.text!r} has no rPr after formatting"
+        rFonts = rpr.rFonts
+        assert rFonts is not None, f"Run {run.text!r} has no rFonts after formatting"
+        ascii_font = rFonts.get(qn("w:ascii"))
+        assert ascii_font == en_font, (
+            f"Run {run.text!r}: expected w:ascii={en_font!r}, got {ascii_font!r}"
+        )
+
+
+def test_iter_paragraph_runs_includes_hyperlink():
+    """iter_paragraph_runs must yield runs inside w:hyperlink, not just direct runs."""
+    from docx.oxml import OxmlElement
+    from core.docx_utils import iter_paragraph_runs
+
+    doc = Document()
+    p = doc.add_paragraph("前文 ")
+
+    # Add a hyperlink child with one run
+    hyperlink = OxmlElement("w:hyperlink")
+    r_elem = OxmlElement("w:r")
+    t_elem = OxmlElement("w:t")
+    t_elem.text = "https://example.com"
+    r_elem.append(t_elem)
+    hyperlink.append(r_elem)
+    p._p.append(hyperlink)
+
+    # paragraph.runs only sees direct runs; iter_paragraph_runs should see all
+    assert len(p.runs) == 1, "Baseline: paragraph.runs only sees the direct run, not the hyperlink run"
+    all_runs = list(iter_paragraph_runs(p))
+    assert len(all_runs) == 2, (
+        f"iter_paragraph_runs should yield 2 runs (direct + hyperlink), got {len(all_runs)}"
+    )
+    texts = [r.text for r in all_runs]
+    assert any(t == "https://example.com" for t in texts), "Hyperlink URL text not found in iter_paragraph_runs output"
