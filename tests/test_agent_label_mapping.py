@@ -1,7 +1,7 @@
 from docx import Document
 
 from agent.doc_analyzer import DocAnalyzer
-from agent.mode_router import _structure_to_labels
+from agent.mode_router import _structure_to_labels, LLM_TO_INTERNAL_ROLE
 from agent.schema import DocumentStructure
 
 
@@ -38,7 +38,21 @@ def test_llm_schema_roles_are_mapped_to_formatter_roles():
 
     labels = _structure_to_labels(structure)
 
-    assert labels == {0: "h1", 1: "caption", 2: "unknown", 3: "body"}
+    assert labels == {0: "h1", 1: "caption", 2: "unknown", 3: "keyword"}
+
+
+def test_semantic_labels_not_flattened_to_body():
+    """abstract/keyword/reference/footer/list_item 应保留语义，不压扁为 body。"""
+    for llm_type, expected in [
+        ("abstract", "abstract"),
+        ("keyword", "keyword"),
+        ("reference", "reference"),
+        ("footer", "footer"),
+        ("list_item", "list_item"),
+    ]:
+        assert LLM_TO_INTERNAL_ROLE[llm_type] == expected, (
+            f"{llm_type} should map to {expected!r}, got {LLM_TO_INTERNAL_ROLE[llm_type]!r}"
+        )
 
 
 def test_doc_analyzer_extract_paragraphs_includes_table_paragraphs_in_flow_order():

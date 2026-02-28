@@ -57,6 +57,56 @@ def _validate_and_fill_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
     caption.setdefault("alignment", "center" if caption.get("center", True) else "left")
     cfg["caption"] = caption
 
+    # Semantic roles: abstract / keyword / reference / footer
+    # Each role inherits body defaults unless explicitly overridden in the spec.
+    body_font_size = float(cfg["body"]["font_size_pt"])
+    body_before = float(cfg["body"]["space_before_pt"])
+    body_after = float(cfg["body"]["space_after_pt"])
+
+    for role_key, role_defaults in (
+        ("abstract", {
+            "font_size_pt": body_font_size,
+            "bold": False,
+            "italic": True,
+            "first_line_chars": 2,
+            "space_before_pt": body_before,
+            "space_after_pt": body_after,
+            "alignment": "justify",
+        }),
+        ("keyword", {
+            "font_size_pt": body_font_size,
+            "bold": False,
+            "italic": False,
+            "first_line_chars": 0,
+            "space_before_pt": body_before,
+            "space_after_pt": body_after,
+            "alignment": "left",
+        }),
+        ("reference", {
+            "font_size_pt": body_font_size - 1.5,
+            "bold": False,
+            "italic": False,
+            "first_line_chars": 0,
+            "hanging_indent_pt": 18,
+            "space_before_pt": 0,
+            "space_after_pt": 2,
+            "alignment": "left",
+        }),
+        ("footer", {
+            "font_size_pt": 9,
+            "bold": False,
+            "italic": False,
+            "first_line_chars": 0,
+            "space_before_pt": 0,
+            "space_after_pt": 0,
+            "alignment": "center",
+        }),
+    ):
+        role_cfg = dict(cfg.get(role_key) or {})
+        for k, v in role_defaults.items():
+            role_cfg.setdefault(k, v)
+        cfg[role_key] = role_cfg
+
     return cfg
 
 
