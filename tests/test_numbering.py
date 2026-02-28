@@ -30,7 +30,7 @@ from core.numbering import (
     strip_list_text_prefix,
     convert_text_lists,
 )
-from core.formatter import apply_formatting, detect_role
+from core.formatter import apply_formatting, detect_role, _normalize_table_list_separators
 from core.docx_utils import iter_all_paragraphs, is_effectively_blank_paragraph
 from core.spec import load_spec, Spec
 from core.parser import Block
@@ -1323,3 +1323,129 @@ def test_table_separate_rows_no_explicit_min_run_len():
 
     list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
     assert len(list_paras) == 3, f"Expected 3 numPr paragraphs, got {len(list_paras)}"
+
+
+# ─── 20. inline list separators in table cells (；N) pattern) ─────────────────
+
+def test_normalize_table_list_separators_basic():
+    """Table cell with '1) item1；2) item2；3) item3' must split into 3 paragraphs."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell.paragraphs[0].text = "1) 第一步内容；2) 第二步内容；3) 第三步内容"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    assert report["actions"]["table_inline_list_normalized"] == 1, (
+        "Expected 1 paragraph normalized"
+    )
+    assert report["actions"]["text_list_converted_to_numpr"] == 3, (
+        f"Expected all 3 items converted, got {report['actions']['text_list_converted_to_numpr']}"
+    )
+    cell_paras = table.cell(0, 0).paragraphs
+    assert len(cell_paras) == 3, f"Expected 3 paragraphs, got {len(cell_paras)}"
+    for para in cell_paras:
+        assert _is_list_p(para), f"Expected numPr on {para.text!r}"
+        assert not re.match(r"^\s*\d+[)）]", para.text), f"Prefix not stripped: {para.text!r}"
+
+
+def test_normalize_table_list_separators_paren_arabic():
+    """Table cell with '（1）item1；（2）item2；（3）item3' must split into 3 paragraphs."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell.paragraphs[0].text = "（1）第一步；（2）第二步；（3）第三步"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    assert report["actions"]["text_list_converted_to_numpr"] == 3, (
+        f"Expected 3 converted, got {report['actions']['text_list_converted_to_numpr']}"
+    )
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, f"Expected 3 numPr paragraphs, got {len(list_paras)}"
+
+
+def test_normalize_table_list_separators_body_text_unaffected():
+    """Body (non-table) paragraphs with ；N) must NOT be split by the table normalizer."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    # Body paragraph (not in a table) with inline list markers
+    doc.add_paragraph("1) 第一步；2) 第二步；3) 第三步")
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    assert report["actions"]["table_inline_list_normalized"] == 0, (
+        "Body text must not be affected by table inline list normalizer"
+    )
+    # Body text: only the first item '1)' gets converted
+    assert report["actions"]["text_list_converted_to_numpr"] == 1
+
+
+def test_normalize_table_list_separators_four_items():
+    """Table cell with 4 inline items separated by ；must all become numPr."""
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    cell.paragraphs[0].text = "1) 甲；2) 乙；3) 丙；4) 丁"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    assert report["actions"]["text_list_converted_to_numpr"] == 4, (
+        f"Expected 4 items converted, got {report['actions']['text_list_converted_to_numpr']}"
+    )
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 4, f"Expected 4 numPr paragraphs, got {len(list_paras)}"
+
+
+def test_normalize_table_list_separators_preserves_semicolon_in_content():
+    """A ；that is NOT followed by a list marker must not be replaced with \\n."""
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    # The ；after "可用" is in the middle of content, not before a list marker
+    cell.paragraphs[0].text = "1) 选型（可用；商用）；2) 添加LICENSE"
+
+    count = _normalize_table_list_separators(doc)
+    cell_paras = cell.paragraphs
+    # Only one split at ；2) → 2 paragraphs: "1) 选型（可用；商用）" and "2) 添加LICENSE"
+    # The ；in "（可用；商用）" is preserved
+    assert count == 1, f"Expected 1 paragraph modified, got {count}"
+    full_text = "".join(p.text for p in cell_paras)
+    assert "可用；商用" in full_text or "可用" in full_text, (
+        "Semicolon inside content must be preserved"
+    )
