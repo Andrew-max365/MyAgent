@@ -1251,3 +1251,75 @@ def test_apply_formatting_converts_table_carriage_return_number_items():
     for para in cell_paras:
         assert _is_list_p(para), f"Expected numPr on {para.text!r}"
         assert not re.match(r"^\s*\d+[)）]", para.text), f"Prefix not stripped: {para.text!r}"
+
+
+# ─── 19. min_run_len default = 1: items in separate rows always converted ─────
+
+def test_spec_default_min_run_len_is_1():
+    """_validate_and_fill_defaults must set min_run_len=1 when not specified."""
+    from core.spec import _validate_and_fill_defaults
+    raw = {
+        "fonts": {"zh": "宋体", "en": "Times New Roman"},
+        "body": {
+            "font_size_pt": 12, "line_spacing": 1.5,
+            "space_before_pt": 0, "space_after_pt": 0, "first_line_chars": 2,
+        },
+        "heading": {
+            "h1": {"font_size_pt": 16, "bold": True, "space_before_pt": 12, "space_after_pt": 6},
+            "h2": {"font_size_pt": 14, "bold": True, "space_before_pt": 10, "space_after_pt": 4},
+            "h3": {"font_size_pt": 12, "bold": True, "space_before_pt": 8,  "space_after_pt": 2},
+        },
+    }
+    filled = _validate_and_fill_defaults(raw)
+    assert filled["list_item"]["min_run_len"] == 1, (
+        "Default min_run_len must be 1 so items in separate table cells are converted"
+    )
+
+
+def test_table_separate_rows_no_explicit_min_run_len():
+    """
+    Regression: items 1）/2）/3） each in their own table row must ALL get numPr
+    even when the spec does not explicitly set min_run_len (relies on the default=1).
+    """
+    from core.spec import Spec, _validate_and_fill_defaults
+    # Build a minimal spec without a min_run_len key under list_item
+    raw = {
+        "fonts": {"zh": "宋体", "en": "Times New Roman"},
+        "body": {
+            "font_size_pt": 12, "line_spacing": 1.5,
+            "space_before_pt": 0, "space_after_pt": 0, "first_line_chars": 2,
+        },
+        "heading": {
+            "h1": {"font_size_pt": 16, "bold": True, "space_before_pt": 12, "space_after_pt": 6},
+            "h2": {"font_size_pt": 14, "bold": True, "space_before_pt": 10, "space_after_pt": 4},
+            "h3": {"font_size_pt": 12, "bold": True, "space_before_pt": 8,  "space_after_pt": 2},
+        },
+        # list_item section deliberately omits min_run_len
+        "list_item": {"font_size_pt": 12, "bold": False, "italic": False},
+    }
+    spec = Spec(raw=_validate_and_fill_defaults(raw))
+
+    doc = Document()
+    table = doc.add_table(rows=3, cols=1)
+    for i, row in enumerate(table.rows):
+        row.cells[0].paragraphs[0].text = f"{i + 1}）第{i + 1}项内容"
+
+    paras = iter_all_paragraphs(doc)
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=p.text, paragraph_index=i)
+        for i, p in enumerate(paras)
+    ]
+    labels = {"_source": "test"}
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    total = report["actions"]["text_list_converted_to_numpr"]
+    assert total == 3, (
+        f"Expected all 3 table-row items converted even without explicit min_run_len, "
+        f"got {total}. This is the regression: body items form one group so they pass "
+        f"min_run_len=2, but table items in separate cells form groups of 1 and get "
+        f"silently skipped when the default is 2."
+    )
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 3, f"Expected 3 numPr paragraphs, got {len(list_paras)}"
