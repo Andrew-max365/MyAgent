@@ -1,6 +1,5 @@
 # core/formatter.py
 import re
-from itertools import groupby
 from typing import Dict, List, Set
 from collections import Counter
 
@@ -682,57 +681,16 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
             formatted_counter["unknown_as_body"] += 1
 
-    # 4.5) LLM 直接驱动的 list_item 编号转换（绕开 min_run_len 和时序限制）
-    # 遍历 blocks，找出被 LLM 标注为 list_item 的段落，直接转换为 Word numPr
-    # 不受 min_run_len 限制，单条也转换；按格式分组、每组独立 num_id
-    # 同时扫描 body/unknown 段落：若检测到编号前缀也一并纳入，修复 LLM 误判场景
-    # 明确排除标题/题注等结构性角色，避免将章节编号误判为列表
+    # 4.5) 已废弃：原 LLM 直接驱动的 list_item 编号转换逻辑已合并到步骤 5。
+    # 步骤 5 的 convert_text_lists 现在同时处理 list_item 和 body/unknown 段落，
+    # 保证连续编号项整组使用同一 num_id，避免首项被单独结构化的问题。
     convert_text_nums = bool(list_cfg.get("convert_text_numbers", True))
-    if convert_text_nums:
-        _num_left_twips = int(list_cfg.get("num_left_twips", 720))
-        _num_hanging_twips = int(list_cfg.get("num_hanging_twips", 360))
-
-        llm_driven_items = []
-        for b in blocks:
-            p = para_by_index.get(b.paragraph_index)
-            if p is None or is_list_paragraph(p):
-                # Skip paragraphs that already carry real numPr (already a
-                # Word list), so we don't create a duplicate numbering def
-                continue
-            role = labels.get(b.block_id, "")
-            # Include LLM-labeled list_item AND body/unknown paragraphs with
-            # a detectable numeric prefix; exclude structural roles (headings,
-            # captions, abstracts, etc.) to avoid false positives.
-            if role not in ("list_item", "body", "unknown", ""):
-                continue
-            result = detect_text_list_prefix(p.text or "")
-            if result:
-                fmt, _, prefix_len = result
-                llm_driven_items.append((p, fmt, prefix_len))
-
-        llm_driven_items.sort(key=lambda x: x[1])
-        llm_direct_converted = 0
-        for fmt, grp in groupby(llm_driven_items, key=lambda x: x[1]):
-            grp = list(grp)
-            num_id = create_list_num_id(doc, fmt, _num_left_twips, _num_hanging_twips)
-            for p, _fmt, prefix_len in grp:
-                apply_numpr(p, num_id)
-                strip_list_text_prefix(p, prefix_len)
-                # Sync font/size after numPr conversion (step 4 has already run)
-                normalize_mixed_runs(p)
-                for run in iter_paragraph_runs(p):
-                    run.font.size = Pt(list_size)
-                    run.font.bold = list_bold
-                    run.font.italic = list_italic
-                    set_run_fonts(run, zh_font=zh_font, en_font=en_font)
-                llm_direct_converted += 1
-    else:
-        llm_direct_converted = 0
+    llm_direct_converted = 0
     report["actions"]["llm_direct_list_converted"] = llm_direct_converted
 
     # 5) 文本编号 → 真实 Word 列表（numPr）转换
-    # 注：步骤 4.5 已转换的段落带有 numPr，is_list_paragraph 返回 True，
-    # convert_text_lists 内部会跳过它们，不会重复转换。
+    # convert_text_lists 会将连续的编号段落（list_item、body 或 unknown 角色且含编号前缀）
+    # 整组转换为同一 num_id 的 Word 列表，保证渲染对齐。
     if convert_text_nums:
         num_left_twips = int(list_cfg.get("num_left_twips", 720))
         num_hanging_twips = int(list_cfg.get("num_hanging_twips", 360))

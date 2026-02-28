@@ -35,6 +35,11 @@ _ENCLOSED_ORD: Dict[str, int] = {
 # Supported format keys
 LIST_FMTS = ("paren_arabic", "rparen", "num_dot", "enclosed", "alpha_lower", "alpha_upper")
 
+# Structural roles that always break a list group (never part of a numbered list)
+_STRUCTURAL_ROLES = frozenset({
+    "h1", "h2", "h3", "caption", "abstract", "keyword", "reference", "footer"
+})
+
 # Map format key → (w:numFmt value, w:lvlText value)
 _FMT_TO_WORD: Dict[str, Tuple[str, str]] = {
     "paren_arabic": ("decimal",                "（%1）"),  # full-width parentheses
@@ -282,9 +287,14 @@ def convert_text_lists(
     hanging_twips: int = 360,
 ) -> Tuple[int, List[Paragraph]]:
     """
-    Scan *paragraphs* for runs of consecutive text-based ``list_item``
-    paragraphs (i.e. those whose text starts with a recognised list marker
-    but that do **not** already carry ``w:numPr``).
+    Scan *paragraphs* for runs of consecutive paragraphs whose text begins
+    with a recognised list marker and that do **not** already carry ``w:numPr``.
+
+    Eligible paragraphs are those whose role is **not** a structural role
+    (heading, caption, abstract, keyword, reference, or footer).  In
+    particular both ``list_item`` **and** ``body``/``unknown`` paragraphs are
+    eligible, so that documents where the LLM mis-labelled some items in a
+    sequence are still converted as a whole group.
 
     For each run that is at least *min_run_len* items long and uses the same
     list format, this function:
@@ -301,9 +311,11 @@ def convert_text_lists(
     Returns ``(converted_count, converted_paragraphs)`` where
     *converted_paragraphs* is the list of paragraphs that received ``numPr``.
     """
-    # Group consecutive text-based list_item paragraphs by format.
-    # A group resets whenever: blank para, non-list_item role, already-real
-    # numPr, or a format change.
+    # Group consecutive paragraphs that carry a recognised list prefix.
+    # A group resets whenever: blank para, structural role (heading/caption/…),
+    # paragraph already carrying real numPr, no detectable prefix, or a format change.
+    # "body" / "unknown" / "list_item" paragraphs are all eligible so that
+    # groups where the LLM mis-labelled some items still convert as a whole.
     groups: List[List[Tuple[Paragraph, str, int, int]]] = []
     current: List[Tuple[Paragraph, str, int, int]] = []
     current_fmt: Optional[str] = None
@@ -316,9 +328,18 @@ def convert_text_lists(
                 current_fmt = None
             continue
 
+        if is_list_paragraph_fn(p):
+            # Already carries real numPr – break the current group so it
+            # doesn't merge with the preceding/following text-based items.
+            if current:
+                groups.append(current)
+                current = []
+                current_fmt = None
+            continue
+
         role = get_role(p)
-        if role != "list_item" or is_list_paragraph_fn(p):
-            # Either not a list item, or already has real numPr
+        if role in _STRUCTURAL_ROLES:
+            # Headings, captions, abstracts, etc. always break a group.
             if current:
                 groups.append(current)
                 current = []
@@ -328,6 +349,7 @@ def convert_text_lists(
         text = p.text or ""
         result = detect_text_list_prefix(text)
         if result is None:
+            # No detectable numeric prefix – break the group.
             if current:
                 groups.append(current)
                 current = []
