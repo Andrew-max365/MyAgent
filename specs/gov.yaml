@@ -104,4 +104,4 @@ list_item:
   alignment: "justify"
   num_left_twips: 720
   num_hanging_twips: 360
-  min_run_len: 2
+  min_run_len: 1
