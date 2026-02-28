@@ -177,13 +177,11 @@ class LLMClient:
         else:
             return 0.0
 
-        if 1.0 < value <= 100.0:
-            value /= 100.0
         return max(0.0, min(1.0, value))
 
     @classmethod
     def _canonicalize_structure_payload(cls, data: Any) -> Any:
-        """规范化 LLM payload 的 paragraph_type，并在缺失时补 total_paragraphs。"""
+        """规范化 LLM payload 的字段（paragraph_type/confidence），并在缺失时补 total_paragraphs。"""
         if not isinstance(data, dict):
             return data
         payload = dict(data)
