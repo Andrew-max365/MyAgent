@@ -13,30 +13,9 @@ from agent.schema import DocumentStructure
 HYBRID_CONFIDENCE_THRESHOLD = 0.7
 
 
-LLM_TO_INTERNAL_ROLE = {
-    "title_1": "h1",
-    "title_2": "h2",
-    "title_3": "h3",
-    "body": "body",
-    "list_item": "body",
-    "table_caption": "caption",
-    "figure_caption": "caption",
-    "abstract": "body",
-    "keyword": "body",
-    "reference": "body",
-    "footer": "body",
-    "unknown": "unknown",
-}
-
-
-def _normalize_role(role: str) -> str:
-    """将 LLM schema 标签统一映射为 formatter 可识别标签。"""
-    return LLM_TO_INTERNAL_ROLE.get(role, "unknown")
-
-
 def _structure_to_labels(structure: DocumentStructure) -> Dict[int, str]:
     """将 DocumentStructure 转换为 {paragraph_index: paragraph_type} 字典"""
-    return {p.index: _normalize_role(p.paragraph_type) for p in structure.paragraphs}
+    return {p.index: p.paragraph_type for p in structure.paragraphs}
 
 
 def _structure_low_confidence(structure: DocumentStructure) -> list:

@@ -6,7 +6,6 @@ from typing import Optional
 
 from agent.llm_client import LLMClient, LLMCallError
 from agent.schema import DocumentStructure
-from core.docx_utils import iter_all_paragraphs
 
 
 class DocAnalyzer:
@@ -28,8 +27,8 @@ class DocAnalyzer:
         :param doc: python-docx Document 对象
         :return: 段落文本列表（保留空段落占位，以保持索引对应关系）
         """
-        # 遍历文档流中的全部段落（含表格/嵌套表格），确保索引与 parser 一致
-        return [p.text for p in iter_all_paragraphs(doc)]
+        # 遍历文档所有段落（包含表格外的段落）
+        return [p.text for p in doc.paragraphs]
 
     def analyze(self, doc) -> DocumentStructure:
         """
