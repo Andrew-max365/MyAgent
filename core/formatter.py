@@ -342,10 +342,12 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     body_alignment = _resolve_alignment(paragraph_cfg.get("alignment", "justify"))
 
     # ====== 角色映射：优先 labels，缺失才 fallback detect_role ======
-    # 关键点：用 Paragraph 对象做 key，避免后续删除/插入导致“索引错位”
+    # 关键点：用底层 CT_P XML 元素做 key（而不是 Paragraph 包装对象），
+    # 因为每次调用 iter_all_paragraphs 都会创建新的 Paragraph 包装对象，
+    # 若用对象本身做 key 会导致 label_by_elem 查找永远失败。
     orig_paras = iter_all_paragraphs(doc)
     para_by_index = {i: p for i, p in enumerate(orig_paras)}
-    label_by_para: Dict[Paragraph, str] = {}
+    label_by_elem: Dict = {}  # CT_P element -> role str
 
     for b in blocks:
         role = labels.get(b.block_id)
@@ -353,10 +355,10 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             continue
         p = para_by_index.get(b.paragraph_index)
         if p is not None:
-            label_by_para[p] = role
+            label_by_elem[p._p] = role
 
     def get_role(p: Paragraph) -> str:
-        return label_by_para.get(p) or detect_role(p)
+        return label_by_elem.get(p._p) or detect_role(p)
 
     # ====== Report（诊断/动作统计/可解释输出）======
     label_source = labels.get("_source", "unknown")
@@ -462,8 +464,8 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
     new_paras_from_split: List[Paragraph] = []
     def _inherit_label(parent_p, child_p):
         # 让拆分出来的新段落继承原段落的标签（避免 fallback 造成标签不一致）
-        if parent_p in label_by_para and child_p not in label_by_para:
-            label_by_para[child_p] = label_by_para[parent_p]
+        if parent_p._p in label_by_elem and child_p._p not in label_by_elem:
+            label_by_elem[child_p._p] = label_by_elem[parent_p._p]
         new_paras_from_split.append(child_p)
 
     created_by_split = _split_body_paragraphs_on_linebreaks(doc, role_getter=get_role, on_new_paragraph=_inherit_label)
@@ -543,11 +545,44 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
 
             formatted_counter["caption"] += 1
 
+        elif role in ("abstract", "keyword", "reference", "footer", "list_item"):
+            rc = cfg.get(role, {})
+            size = float(rc.get("font_size_pt", body_size))
+            bold = bool(rc.get("bold", False))
+            italic = bool(rc.get("italic", False))
+            before = float(rc.get("space_before_pt", body_before))
+            after = float(rc.get("space_after_pt", body_after))
+            flc = int(rc.get("first_line_chars", 0))
+            hanging = float(rc.get("hanging_indent_pt", 0))
+            role_align = _resolve_alignment(rc.get("alignment", "justify"))
+
+            _apply_paragraph_common(p, body_line_spacing, before, after)
+            if hanging:
+                # 悬挂缩进：所有行左缩进 hanging pt，首行回缩 -hanging pt（首行从页边起）
+                p.paragraph_format.left_indent = Pt(hanging)
+                p.paragraph_format.first_line_indent = Pt(-hanging)
+            elif flc:
+                p.paragraph_format.left_indent = Pt(0)
+                p.paragraph_format.first_line_indent = _first_line_indent_pt(flc, size)
+            else:
+                p.paragraph_format.left_indent = Pt(0)
+                p.paragraph_format.first_line_indent = Pt(0)
+            if role_align is not None:
+                p.paragraph_format.alignment = role_align
+
+            normalize_mixed_runs(p)
+            for run in p.runs:
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.italic = italic
+                set_run_fonts(run, zh_font=zh_font, en_font=en_font)
+
+            formatted_counter[role] += 1
+
         else:
             # unknown：当正文处理，尽量不让段落漏掉缩进/字体统一
             _apply_paragraph_common(p, body_line_spacing, body_before, body_after)
             p.paragraph_format.left_indent = Pt(0)
-            p.paragraph_format.hanging_indent = Pt(0)
             p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
             if body_alignment is not None:
                 p.paragraph_format.alignment = body_alignment

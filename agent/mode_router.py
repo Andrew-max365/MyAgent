@@ -18,13 +18,13 @@ LLM_TO_INTERNAL_ROLE = {
     "title_2": "h2",
     "title_3": "h3",
     "body": "body",
-    "list_item": "body",
+    "list_item": "list_item",
     "table_caption": "caption",
     "figure_caption": "caption",
-    "abstract": "body",
-    "keyword": "body",
-    "reference": "body",
-    "footer": "body",
+    "abstract": "abstract",
+    "keyword": "keyword",
+    "reference": "reference",
+    "footer": "footer",
     "unknown": "unknown",
 }
 
