@@ -84,8 +84,36 @@ def detect_text_list_prefix(text: str) -> Optional[Tuple[str, int, int]]:
 # ─── Numbering XML helpers ────────────────────────────────────────────────────
 
 def _numbering_element(doc):
-    """Return the ``w:numbering`` XML element from the document's numbering part."""
-    return doc.part.numbering_part._element
+    """Return the ``w:numbering`` XML element, creating the numbering part if absent.
+
+    Some ``.docx`` files lack a ``word/numbering.xml`` part (no pre-existing
+    lists).  In the installed version of python-docx ``NumberingPart.new()`` is
+    not implemented, so accessing ``doc.part.numbering_part`` raises
+    ``NotImplementedError``.  This function catches that case and creates a
+    minimal numbering part so that list definitions can be appended safely.
+    """
+    try:
+        return doc.part.numbering_part._element
+    except NotImplementedError:
+        # NumberingPart.new() is unimplemented in this python-docx release.
+        # Build a minimal numbering part from raw XML and attach it manually.
+        from docx.opc.packuri import PackURI
+        from docx.oxml.ns import nsdecls
+        from docx.oxml.parser import parse_xml
+        from docx.parts.numbering import NumberingPart as _NP
+
+        _CONTENT_TYPE = (
+            "application/vnd.openxmlformats-officedocument"
+            ".wordprocessingml.numbering+xml"
+        )
+        _REL_TYPE = (
+            "http://schemas.openxmlformats.org/officeDocument"
+            "/2006/relationships/numbering"
+        )
+        blob = ("<w:numbering %s/>" % nsdecls("w", "r")).encode("utf-8")
+        npart = _NP.load(PackURI("/word/numbering.xml"), _CONTENT_TYPE, blob, doc.part.package)
+        doc.part.relate_to(npart, _REL_TYPE)
+        return npart._element
 
 
 def _next_free_id(nelem) -> int:
@@ -215,6 +243,11 @@ def strip_list_text_prefix(paragraph: Paragraph, prefix_char_count: int):
 
     After stripping, any remaining leading whitespace on the first run is also
     removed so the list text starts cleanly.
+
+    If the paragraph contains no ``w:r`` runs (e.g. text lives in raw XML
+    nodes not wrapped by a run), the function is a no-op and the prefix is
+    left in place.  This is an uncommon edge case for documents authored
+    outside of Word.
     """
     runs = list(paragraph.runs)
     remaining = prefix_char_count

@@ -35,7 +35,11 @@ def _normalize_role(role: str) -> str:
 
 
 def _structure_to_labels(structure: DocumentStructure) -> Dict[int, str]:
-    """将 DocumentStructure 转换为 {paragraph_index: paragraph_type} 字典"""
+    """将 DocumentStructure 转换为 {paragraph_index: internal_role} 字典。
+
+    ``internal_role`` 是 formatter 可识别的角色字符串（h1/h2/h3/body/list_item 等），
+    由 :func:`_normalize_role` 从 LLM schema 类型映射而来。
+    """
     return {p.index: _normalize_role(p.paragraph_type) for p in structure.paragraphs}
 
 

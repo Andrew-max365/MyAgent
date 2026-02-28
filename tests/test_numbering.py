@@ -13,6 +13,7 @@ Coverage:
 """
 
 from pathlib import Path
+import re
 import sys
 
 from docx import Document
@@ -479,8 +480,7 @@ def test_convert_text_lists_num_dot():
     for p in iter_all_paragraphs(doc):
         assert _is_list_p(p), f"Paragraph {p.text!r} should have numPr"
         # No numeric prefix should remain (1., 2., 3.)
-        import re as _re
-        assert not _re.match(r"^\d+\. ", p.text), f"Prefix not stripped: {p.text!r}"
+        assert not re.match(r"^\d+\. ", p.text), f"Prefix not stripped: {p.text!r}"
 
 
 def test_apply_formatting_converts_num_dot_lists():
@@ -508,7 +508,6 @@ def test_table_cell_body_no_first_line_indent():
     """Body paragraphs inside table cells must not receive first-line indent."""
     from core.formatter import apply_formatting
     from core.parser import Block
-    from docx.shared import Pt
 
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
     doc = Document()
@@ -547,3 +546,143 @@ def test_autofit_tables_action_in_report():
     report = apply_formatting(doc, blocks, labels, spec)
     assert "tables_autofitted" in report["actions"]
     assert report["actions"]["tables_autofitted"] == 1
+
+
+# ─── 10. create_list_num_id on document without numbering part ────────────────
+
+def _make_doc_without_numbering_part():
+    """Return a Document loaded from a docx that has no word/numbering.xml."""
+    import io
+    import re as _re
+    import zipfile
+
+    buf = io.BytesIO()
+    Document().save(buf)
+    buf.seek(0)
+
+    buf2 = io.BytesIO()
+    with zipfile.ZipFile(buf, "r") as z_in:
+        with zipfile.ZipFile(buf2, "w", zipfile.ZIP_DEFLATED) as z_out:
+            for name in z_in.namelist():
+                data = z_in.read(name)
+                if "numbering" in name.lower():
+                    continue  # strip numbering.xml
+                if name == "word/_rels/document.xml.rels":
+                    # Remove the Relationship entry pointing at numbering.xml
+                    data = _re.sub(
+                        rb"<Relationship[^>]*numbering[^>]*/?>",
+                        b"",
+                        data,
+                    )
+                z_out.writestr(name, data)
+
+    buf2.seek(0)
+    return Document(buf2)
+
+
+def test_create_list_num_id_creates_numbering_part_when_absent():
+    """create_list_num_id must succeed even if the document has no numbering part."""
+    doc = _make_doc_without_numbering_part()
+
+    # Accessing numbering_part on the bare doc should raise NotImplementedError
+    try:
+        _ = doc.part.numbering_part._element
+        # If we reach here the template unexpectedly kept numbering.xml — skip
+        return
+    except (NotImplementedError, Exception):
+        pass
+
+    # create_list_num_id must not raise
+    num_id = create_list_num_id(doc, "paren_arabic")
+    assert isinstance(num_id, int) and num_id > 0
+
+    # The numbering part must now exist and contain the new num element
+    nelem = doc.part.numbering_part._element
+    num_ids = {c.get(qn("w:numId")) for c in nelem if c.tag == qn("w:num")}
+    assert str(num_id) in num_ids
+
+
+def test_convert_text_lists_on_doc_without_numbering_part():
+    """convert_text_lists end-to-end must work when the doc starts without a numbering part."""
+    doc = _make_doc_without_numbering_part()
+    for text in ["（1）第一项", "（2）第二项", "（3）第三项"]:
+        doc.add_paragraph(text)
+
+    paras = iter_all_paragraphs(doc)
+    converted = convert_text_lists(
+        doc,
+        paras,
+        get_role=lambda _: "list_item",
+        is_list_paragraph_fn=_is_list_p,
+        is_blank_fn=is_effectively_blank_paragraph,
+        min_run_len=2,
+    )
+    assert converted == 3
+    for p in iter_all_paragraphs(doc):
+        if not is_effectively_blank_paragraph(p):
+            assert _is_list_p(p), f"Expected numPr on {p.text!r}"
+
+
+# ─── 11. min_run_len=1 converts single-item lists ────────────────────────────
+
+def test_convert_text_lists_min_run_len_1_converts_single_item():
+    """With min_run_len=1, even a single list item should be converted."""
+    doc = Document()
+    doc.add_paragraph("（1）只有一项")
+    doc.add_paragraph("这是正文段落。")
+
+    paras = iter_all_paragraphs(doc)
+    converted = convert_text_lists(
+        doc,
+        paras,
+        get_role=lambda p: "list_item" if p.text.startswith("（") else "body",
+        is_list_paragraph_fn=_is_list_p,
+        is_blank_fn=is_effectively_blank_paragraph,
+        min_run_len=1,
+    )
+    assert converted == 1
+
+    # The single item should now have numPr
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 1
+    # And its text prefix should be stripped
+    assert "（1）" not in list_paras[0].text
+
+
+def test_apply_formatting_min_run_len_1_via_spec():
+    """apply_formatting with min_run_len=1 in spec must convert even single list items."""
+    import copy
+    from core.spec import Spec
+
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    raw = copy.deepcopy(spec.raw)
+    raw["list_item"]["min_run_len"] = 1
+    spec_1 = Spec(raw=raw)
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("list_item", "（1）单独一项"),
+        ("body", "后接正文段落。"),
+    ])
+
+    report = apply_formatting(doc, blocks, labels, spec_1)
+    assert report["actions"]["text_list_converted_to_numpr"] == 1
+
+    list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
+    assert len(list_paras) == 1
+
+
+# ─── 12. strip_list_text_prefix graceful no-op with no runs ──────────────────
+
+def test_strip_list_text_prefix_no_runs_is_noop():
+    """strip_list_text_prefix must not raise when a paragraph has no runs."""
+    doc = Document()
+    p = doc.add_paragraph("")
+    # Manually clear all runs so the paragraph has none
+    for r in list(p.runs):
+        r._element.getparent().remove(r._element)
+
+    assert not p.runs  # confirm no runs
+
+    # Should not raise
+    strip_list_text_prefix(p, 3)
+    # Text is empty / unchanged — no crash is the key assertion

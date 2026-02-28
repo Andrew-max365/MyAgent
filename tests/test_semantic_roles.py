@@ -7,7 +7,6 @@ from pathlib import Path
 import sys
 
 from docx import Document
-from docx.shared import Pt
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
