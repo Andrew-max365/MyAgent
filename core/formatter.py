@@ -745,7 +745,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
                 # 悬挂缩进：所有行左缩进 hanging pt，首行回缩 -hanging pt（首行从页边起）
                 p.paragraph_format.left_indent = Pt(hanging)
                 p.paragraph_format.first_line_indent = Pt(-hanging)
-            elif flc:
+            elif flc and not _is_in_table_cell(p):
                 p.paragraph_format.left_indent = Pt(0)
                 p.paragraph_format.first_line_indent = _first_line_indent_pt(flc, size)
             else:
@@ -768,7 +768,10 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             _apply_paragraph_common(p, body_line_spacing, body_before, body_after)
             p.paragraph_format.left_indent = Pt(0)
             p.paragraph_format.hanging_indent = Pt(0)
-            p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
+            if _is_in_table_cell(p):
+                p.paragraph_format.first_line_indent = Pt(0)
+            else:
+                p.paragraph_format.first_line_indent = _first_line_indent_pt(first_line_chars, body_size)
             if body_alignment is not None:
                 p.paragraph_format.alignment = body_alignment
             _apply_runs_font(p, zh_font, en_font, size_pt=body_size, force_bold=None)
@@ -812,7 +815,7 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             if list_hanging_indent:
                 p.paragraph_format.left_indent = Pt(list_hanging_indent)
                 p.paragraph_format.first_line_indent = Pt(-list_hanging_indent)
-            elif _list_first_line_chars:
+            elif _list_first_line_chars and not _is_in_table_cell(p):
                 p.paragraph_format.left_indent = Pt(0)
                 p.paragraph_format.first_line_indent = _first_line_indent_pt(_list_first_line_chars, list_size)
             else:
