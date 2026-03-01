@@ -543,6 +543,64 @@ def test_table_cell_body_no_first_line_indent():
     assert fli is None or fli == 0, f"Expected no first-line indent in cell, got {fli}"
 
 
+def test_table_cell_unknown_no_first_line_indent():
+    """Unknown-labeled paragraphs inside table cells must not receive first-line indent."""
+    from core.formatter import apply_formatting
+    from core.parser import Block
+
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    p = cell.paragraphs[0]
+    p.text = "表格里的内容"
+
+    paras = list(iter_all_paragraphs(doc))
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=para.text, paragraph_index=i)
+        for i, para in enumerate(paras)
+    ]
+    # Explicitly label the cell paragraph as "unknown"
+    labels = {"_source": "test", 1: "unknown"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    cell_p = table.cell(0, 0).paragraphs[0]
+    fli = cell_p.paragraph_format.first_line_indent
+    assert fli is None or fli == 0, (
+        f"Expected no first-line indent for unknown role in table cell, got {fli}"
+    )
+
+
+def test_table_cell_list_item_no_first_line_indent():
+    """list_item paragraphs inside table cells must not receive first-line indent."""
+    from core.formatter import apply_formatting
+    from core.parser import Block
+
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    cell = table.cell(0, 0)
+    p = cell.paragraphs[0]
+    p.text = "（1）表格里的列表项"
+
+    paras = list(iter_all_paragraphs(doc))
+    blocks = [
+        Block(block_id=i + 1, kind="paragraph", text=para.text, paragraph_index=i)
+        for i, para in enumerate(paras)
+    ]
+    labels = {"_source": "test", 1: "list_item"}
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    cell_p = table.cell(0, 0).paragraphs[0]
+    fli = cell_p.paragraph_format.first_line_indent
+    # list_item in a table: should have no positive first_line_indent
+    assert fli is None or fli <= 0, (
+        f"Expected no positive first-line indent for list_item in table cell, got {fli}"
+    )
+
+
 def test_autofit_tables_action_in_report():
     """apply_formatting report must include tables_autofitted count."""
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
