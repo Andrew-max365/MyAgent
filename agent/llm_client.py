@@ -10,8 +10,8 @@ import openai
 import pydantic
 
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_TIMEOUT_S
-from agent.prompt_templates import SYSTEM_PROMPT, build_user_prompt
-from agent.schema import DocumentStructure
+from agent.prompt_templates import SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT, build_user_prompt, build_review_prompt
+from agent.schema import DocumentStructure, DocumentReview, LLMSuggestion
 
 ALLOWED_PARAGRAPH_TYPES = {
     "title_1",
@@ -136,6 +136,86 @@ class LLMClient:
             raise LLMCallError(f"LLM 响应结构校验失败: {e}", error_type="format_error") from e
         except Exception as e:
             raise LLMCallError(f"LLM 响应解析失败: {e}", error_type="unknown") from e
+
+    def call_review(
+        self,
+        paragraphs: List[str],
+        triggered_indices: list | None = None,
+        rule_labels: dict | None = None,
+    ) -> "DocumentReview":
+        """
+        调用大模型进行语义审阅，返回 DocumentReview（含结构标签 + 建议列表）。
+
+        :param paragraphs: 文档全部段落文本列表
+        :param triggered_indices: 触发审阅的段落索引列表（hybrid 模式）；None 表示全量（llm 模式）
+        :param rule_labels: 规则层标签（paragraph_index -> role），供 LLM 参考
+        :return: DocumentReview 实例
+        :raises LLMCallError: 调用失败或解析失败时抛出
+        """
+        try:
+            user_prompt = build_review_prompt(paragraphs, triggered_indices, rule_labels)
+            response = self.client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+            )
+            raw = response.choices[0].message.content
+            data = json.loads(self._normalize_json_text(raw))
+            data = self._canonicalize_review_payload(data)
+            return DocumentReview(**data)
+        except LLMCallError:
+            raise
+        except openai.APITimeoutError as e:
+            raise LLMCallError(f"LLM 审阅调用超时: {e}", error_type="timeout") from e
+        except openai.AuthenticationError as e:
+            raise LLMCallError(f"LLM 鉴权失败: {e}", error_type="auth") from e
+        except json.JSONDecodeError as e:
+            raise LLMCallError(f"LLM 审阅响应 JSON 解析失败: {e}", error_type="format_error") from e
+        except pydantic.ValidationError as e:
+            raise LLMCallError(f"LLM 审阅响应结构校验失败: {e}", error_type="format_error") from e
+        except Exception as e:
+            raise LLMCallError(f"LLM 审阅调用失败: {e}", error_type="unknown") from e
+
+    @classmethod
+    def _canonicalize_suggestion(cls, item: Any) -> Any:
+        """规范化单条建议字段。"""
+        if not isinstance(item, dict):
+            return item
+        s = dict(item)
+        # 规范化 category
+        valid_categories = {"hierarchy", "ambiguity", "structure", "style", "terminology"}
+        if s.get("category") not in valid_categories:
+            s["category"] = "ambiguity"
+        # 规范化 severity
+        valid_severities = {"low", "medium", "high"}
+        if s.get("severity") not in valid_severities:
+            s["severity"] = "low"
+        # 规范化 confidence
+        s["confidence"] = cls._normalize_confidence(s.get("confidence"))
+        # 规范化 apply_mode
+        if s.get("apply_mode") not in ("auto", "manual"):
+            s["apply_mode"] = "manual"
+        # 填充必要字段
+        s.setdefault("evidence", "")
+        s.setdefault("suggestion", "")
+        s.setdefault("rationale", "")
+        return s
+
+    @classmethod
+    def _canonicalize_review_payload(cls, data: Any) -> Any:
+        """规范化 DocumentReview payload（含 paragraphs + suggestions）。"""
+        if not isinstance(data, dict):
+            return data
+        payload = cls._canonicalize_structure_payload(data)
+        suggestions = payload.get("suggestions")
+        if isinstance(suggestions, list):
+            payload["suggestions"] = [cls._canonicalize_suggestion(s) for s in suggestions]
+        else:
+            payload["suggestions"] = []
+        return payload
 
     @staticmethod
     def _normalize_json_text(raw: str) -> str:

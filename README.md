@@ -17,8 +17,77 @@
 | 模式 | 说明 |
 |---|---|
 | `rule` | 纯规则模式（默认兜底，无需 API Key） |
-| `llm` | 纯 LLM 模式（完全由大模型分析文档结构） |
-| `hybrid` | 混合模式（LLM 主判断，置信度不足时规则兜底，**推荐**） |
+| `llm` | 纯 LLM 模式（完全由大模型分析文档结构 + 产出可执行建议） |
+| `hybrid` | 混合模式（规则优先，仅在触发条件命中时调用 LLM，**推荐**） |
+
+### 模式职责边界与差异对比
+
+| 维度 | `rule` | `llm` | `hybrid` |
+|---|---|---|---|
+| **执行顺序** | 仅规则 | 仅 LLM（全量） | 规则 → 触发判断 → 可选 LLM |
+| **LLM 调用时机** | 从不 | 始终（所有段落） | 仅当触发条件命中 |
+| **触发条件** | — | — | ① `unknown` 标签 ② 标题文本过长 ③ 连续短正文（潜在列表） |
+| **标签来源** | 规则 | LLM（规则兜底未覆盖段落） | 规则（未触发）+ LLM（触发段落，低置信度回退规则） |
+| **语义建议输出** | 无 | 有（`llm_review.suggestions`） | 有（触发时，`llm_review.suggestions`） |
+| **报告额外字段** | — | `llm_review`（建议列表） | `hybrid_triggers`（触发原因/指标）+ `llm_review`（若触发） |
+| **API Key 要求** | 否 | 是 | 否（未触发时）/ 是（触发时） |
+
+### 为什么之前 llm 与 hybrid 看不出区别
+
+**根本原因**：旧实现中 `_llm` 和 `_hybrid` 均无差别地全量调用 LLM，且只返回结构标签（无语义建议），
+导致两种模式的输出几乎相同。
+
+**修复后的差异**：
+1. **hybrid 增加了"门控"机制**：先运行规则层，评估三类触发条件；若无触发则完全不调用 LLM，
+   输出的 `hybrid_triggers.triggered=false` 且 `llm_called=false`，可在报告中直观验证。
+2. **llm 模式使用语义审阅 Prompt**：调用 `call_review` 返回 `DocumentReview`，包含完整的
+   `suggestions` 建议列表（`category/severity/confidence/evidence/suggestion/rationale/apply_mode`）。
+3. **hybrid 模式仅审阅触发段落**：`call_review` 传入 `triggered_indices`，LLM 只处理高价值
+   的问题段落（通常 ≤ 20%），而非全量调用。
+
+### LLM 建议输出格式（`llm_review.suggestions`）
+
+当 `label_mode=llm` 或 `label_mode=hybrid`（且触发）时，报告中会包含 `llm_review` 字段：
+
+```json
+{
+  "llm_review": {
+    "suggestions": [
+      {
+        "category": "hierarchy",
+        "severity": "high",
+        "confidence": 0.92,
+        "evidence": "段落3: 一、研究背景与现状分析...",
+        "suggestion": "建议将「一、」格式改为二级标题样式（14pt 黑体）",
+        "rationale": "当前使用了一级标题字号，但编号层级为二级",
+        "apply_mode": "manual",
+        "paragraph_index": 3
+      }
+    ],
+    "auto_applied": [],
+    "manual_pending": [ ... ]
+  },
+  "hybrid_triggers": {
+    "triggered": true,
+    "reasons": ["标题层级疑似错误: 2 个标题段落文本超过 30 字符"],
+    "triggered_paragraph_count": 2,
+    "total_paragraph_count": 15,
+    "llm_called": true,
+    "metrics": { "unknown_count": 0, "ambiguous_heading_count": 2 }
+  }
+}
+```
+
+### 触发条件说明（hybrid 模式）
+
+| 触发条件 | 触发规则 | 原因分类 |
+|---|---|---|
+| `unknown_labels` | 规则标为 `unknown` 的段落 ≥ 1 | 术语/类型不明 |
+| `heading_ambiguity` | `h2`/`h3` 标签但文本 > 30 字符 | 标题层级疑似错误 |
+| `potential_list` | 连续 ≥3 个短正文段落（≤60 字符） | 结构化改写机会 |
+
+**无触发时**（所有条件均未命中）：hybrid 模式完全等同于 rule 模式，不调用 LLM，
+`report.hybrid_triggers.triggered=false`。
 
 ### 环境变量配置
 
@@ -45,12 +114,18 @@ export LLM_MODE="hybrid"          # rule | llm | hybrid
         │
         ▼
   mode_router.py（根据 LLM_MODE 路由）
-   ├── rule 模式  ──────────────────────► 规则排版引擎（现有逻辑）
-   ├── llm 模式   ── DocAnalyzer ──► LLMClient ──► 结构化 JSON ──► 排版引擎
+   ├── rule 模式  ──────────────────────► 规则排版引擎 → report（无 llm_review）
+   │
+   ├── llm 模式   ── DocAnalyzer.call_review ──► DocumentReview（标签 + 建议）
+   │                                           ──► 排版引擎 → report（含 llm_review.suggestions）
+   │
    └── hybrid 模式
-         ├── LLM 分析成功且置信度高 ──► LLM 结构 JSON ──► 排版引擎
-         ├── LLM 置信度低的段落    ──► 规则兜底
-         └── LLM 完全失败          ──► 完全回退到规则模式
+         ├── 规则层运行 + 触发条件评估
+         │     ├── 无触发（triggered=false）──► 规则结果 → report（hybrid_triggers.llm_called=false）
+         │     └── 有触发（triggered=true）
+         │           ├── call_review（仅触发段落）──► DocumentReview（标签 + 建议）
+         │           ├── 合并：触发段落用 LLM，其余保留规则
+         │           └── report（含 hybrid_triggers + llm_review.suggestions）
 ```
 
 ---
@@ -153,19 +228,23 @@ python format_docx.py input.docx output.docx --label-mode hybrid
 使用 `pydantic` 定义结构化输出 Schema：
 - `ParagraphTag`：单段落结构标签（段落类型、置信度、推理说明等）
 - `DocumentStructure`：整文档结构分析结果
+- `LLMSuggestion`：单条语义建议（含 category/severity/confidence/evidence/suggestion/rationale/apply_mode）
+- `DocumentReview`：文档语义审阅结果（结构标签 + 建议列表）
 
 ### `agent/llm_client.py`
 
 封装大模型 API 调用：
 - 基于 `openai` SDK，兼容所有 OpenAI 接口规范的模型（含国产模型）
+- `call_structured(paragraphs)`：结构标注（返回 `DocumentStructure`）
+- `call_review(paragraphs, triggered_indices, rule_labels)`：语义审阅（返回 `DocumentReview`，含建议）
 - 支持超时控制（`LLM_TIMEOUT_S`）
 - 统一异常处理，失败时抛出 `LLMCallError`
 
 ### `agent/prompt_templates.py`
 
 管理系统 Prompt 和用户 Prompt 模板：
-- `SYSTEM_PROMPT`：告知模型角色与输出格式要求
-- `build_user_prompt(paragraphs)`：根据段落列表动态构造用户 Prompt
+- `SYSTEM_PROMPT` / `build_user_prompt(paragraphs)`：结构标注 Prompt
+- `REVIEW_SYSTEM_PROMPT` / `build_review_prompt(paragraphs, triggered_indices, rule_labels)`：语义审阅 Prompt（llm 全量 / hybrid 针对触发段落）
 
 ### `agent/doc_analyzer.py`
 
@@ -173,7 +252,9 @@ python format_docx.py input.docx output.docx --label-mode hybrid
 
 ### `agent/mode_router.py`
 
-模式路由器：根据 `LLM_MODE` 将请求路由到 `rule` / `llm` / `hybrid` 三种处理分支，`hybrid` 模式包含完整的规则兜底逻辑。
+模式路由器：根据 `LLM_MODE` 将请求路由到 `rule` / `llm` / `hybrid` 三种处理分支。
+- `_compute_hybrid_triggers`：评估三类触发条件（unknown 标签/标题歧义/潜在列表）
+- hybrid 模式含门控逻辑：无触发时不调用 LLM，有触发时仅审阅触发段落
 
 ---
 
