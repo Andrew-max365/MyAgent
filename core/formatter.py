@@ -517,6 +517,13 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         lab = labels.get(b.block_id)
         if not lab or lab == "blank":
             continue
+        # Skip multi-line numbered blocks: detect_role returns 'body' as a
+        # conservative safety measure (to avoid heading mis-classification), not
+        # as a confident semantic classification.  The LLM's label for these
+        # paragraphs is the reliable signal; the paragraph will be split on
+        # linebreaks in step 3 and processed correctly regardless.
+        if looks_like_multiline_numbered_block(p.text or ""):
+            continue
         compared += 1
         det = detect_role(p)
         if det != lab:

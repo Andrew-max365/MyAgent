@@ -1520,3 +1520,66 @@ def test_normalize_table_list_separators_preserves_semicolon_in_content():
     assert "可用；商用" in full_text or "可用" in full_text, (
         "Semicolon inside content must be preserved"
     )
+
+
+# ─── Mismatch suppression for multi-line numbered blocks ────────────────────
+
+def test_multiline_list_item_not_counted_as_mismatch():
+    """
+    A paragraph labeled 'list_item' by LLM but containing multiple numbered
+    items separated by \\n must NOT be counted as a mismatch.
+
+    detect_role returns 'body' for multi-line numbered blocks (conservative
+    safety guard to avoid heading mis-classification).  The LLM's label is the
+    reliable signal for these paragraphs, so the consistency check should skip
+    them rather than produce a false-alarm mismatch.
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    # Simulate what the LLM sees: a paragraph that contains multiple numbered
+    # items joined by soft line-breaks (as produced by Word's Shift+Enter).
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("h1",       "第一章 总结"),   # detect_role → h1 (starts with 第…章)
+        ("list_item", "1. 数学成绩优秀。\n2. 编程能力增强。\n3. 逻辑推理提升。"),
+        ("body",     "这是普通正文段落。"),
+    ])
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    consistency = report["labels"]["consistency"]
+    # The multi-line list_item paragraph must NOT appear in mismatch_examples
+    # (detect_role would say 'body' for it, but that's a false alarm)
+    mismatch_labels = [ex["label"] for ex in consistency["mismatch_examples"]]
+    assert "list_item" not in mismatch_labels, (
+        "Multi-line list_item paragraphs must not appear as mismatch examples"
+    )
+    # The compared count must exclude the multi-line paragraph
+    assert consistency["compared"] <= 2, (
+        f"Multi-line block should be excluded from comparison; compared={consistency['compared']}"
+    )
+    assert consistency["mismatched"] == 0, (
+        f"Expected 0 real mismatches; got {consistency['mismatched']}"
+    )
+
+
+def test_multiline_non_list_mismatch_still_reported():
+    """
+    A 'real' mismatch (e.g. LLM says 'h1' but detect_role says 'body' for a
+    plain single-line paragraph) must still appear in the mismatch report.
+    This ensures the multi-line exclusion does not suppress genuine divergences.
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    # Single-line paragraph with no list marker, no heading style — detect_role
+    # returns 'body', but LLM (incorrectly) labels it 'h1'.
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("h1", "这是一段普通正文内容没有标题标记"),
+    ])
+
+    report = apply_formatting(doc, blocks, labels, spec)
+
+    consistency = report["labels"]["consistency"]
+    assert consistency["compared"] == 1
+    assert consistency["mismatched"] == 1, (
+        "Single-line body/h1 divergence must still be reported as a mismatch"
+    )
