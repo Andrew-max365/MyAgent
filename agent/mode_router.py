@@ -2,15 +2,25 @@
 # 根据 LLM_MODE 环境变量，将文档分析请求路由到不同的处理逻辑
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, List, Optional, Set
 
 from config import LLM_MODE
 from agent.doc_analyzer import DocAnalyzer
 from agent.llm_client import LLMCallError
-from agent.schema import DocumentStructure
+from agent.schema import DocumentStructure, DocumentReview
 
 # hybrid 模式下的置信度阈值：低于此值的段落回退到规则
 HYBRID_CONFIDENCE_THRESHOLD = 0.7
+
+# hybrid 触发条件阈值
+# 规则标为 unknown 的段落数阈值（≥1 即触发）
+HYBRID_TRIGGER_UNKNOWN_MIN = 1
+# 标题段落文本长度阈值：超过此字符数视为"疑似误分类"触发
+HYBRID_TRIGGER_HEADING_LEN = 30
+# 连续短 body 段落数阈值：可能是未识别的列表
+HYBRID_TRIGGER_CONSECUTIVE_BODY_MIN = 3
+# 连续 body 段落中认定为"短"的字符数上限
+HYBRID_TRIGGER_SHORT_BODY_CHARS = 60
 
 
 LLM_TO_INTERNAL_ROLE = {
@@ -51,10 +61,106 @@ def _structure_low_confidence(structure: DocumentStructure) -> list:
     ]
 
 
+def _compute_hybrid_triggers(blocks, rule_labels: Dict) -> Dict:
+    """
+    评估规则层标签，判断是否需要调用 LLM 进行语义审阅。
+
+    触发条件：
+    1. unknown_labels：规则无法判定类型的段落（≥1 个）
+    2. heading_ambiguity：被规则标为 h2/h3 但文本较长（>30字）的标题段落
+    3. potential_list：连续 ≥3 个短 body 段落，可能是未识别的列表
+
+    :param blocks: List[Block]
+    :param rule_labels: {block_id: role}
+    :return: {
+        "triggered": bool,
+        "reasons": ["原因描述", ...],
+        "triggered_indices": set[paragraph_index],
+        "metrics": {"unknown_count": N, ...}
+    }
+    """
+    triggered_indices: Set[int] = set()
+    reasons: List[str] = []
+    metrics: Dict = {}
+
+    # --- Trigger 1: unknown labels ---
+    unknown_blocks = [b for b in blocks if rule_labels.get(b.block_id) == "unknown"]
+    metrics["unknown_count"] = len(unknown_blocks)
+    if len(unknown_blocks) >= HYBRID_TRIGGER_UNKNOWN_MIN:
+        for b in unknown_blocks:
+            triggered_indices.add(b.paragraph_index)
+        reasons.append(
+            f"术语/类型不明: {len(unknown_blocks)} 个段落规则无法判定 (unknown)，需语义审阅"
+        )
+
+    # --- Trigger 2: heading ambiguity ---
+    ambiguous_headings = [
+        b for b in blocks
+        if rule_labels.get(b.block_id) in ("h2", "h3")
+        and len(b.text or "") > HYBRID_TRIGGER_HEADING_LEN
+    ]
+    metrics["ambiguous_heading_count"] = len(ambiguous_headings)
+    if ambiguous_headings:
+        for b in ambiguous_headings:
+            triggered_indices.add(b.paragraph_index)
+        reasons.append(
+            f"标题层级疑似错误: {len(ambiguous_headings)} 个标题段落文本超过 "
+            f"{HYBRID_TRIGGER_HEADING_LEN} 字符，可能被误分类"
+        )
+
+    # --- Trigger 3: consecutive short body paragraphs (potential list) ---
+    sorted_blocks = sorted(blocks, key=lambda x: x.paragraph_index)
+    run: List = []
+    for b in sorted_blocks:
+        role = rule_labels.get(b.block_id)
+        text = b.text or ""
+        if role == "body" and 0 < len(text.strip()) <= HYBRID_TRIGGER_SHORT_BODY_CHARS:
+            run.append(b)
+        else:
+            if len(run) >= HYBRID_TRIGGER_CONSECUTIVE_BODY_MIN:
+                for rb in run:
+                    triggered_indices.add(rb.paragraph_index)
+                reasons.append(
+                    f"结构化改写机会: {len(run)} 个连续短正文段落（≤{HYBRID_TRIGGER_SHORT_BODY_CHARS}字），"
+                    f"可能适合列表化（段落 {run[0].paragraph_index}~{run[-1].paragraph_index}）"
+                )
+            run = []
+    # flush last run
+    if len(run) >= HYBRID_TRIGGER_CONSECUTIVE_BODY_MIN:
+        for rb in run:
+            triggered_indices.add(rb.paragraph_index)
+        reasons.append(
+            f"结构化改写机会: {len(run)} 个连续短正文段落（≤{HYBRID_TRIGGER_SHORT_BODY_CHARS}字），"
+            f"可能适合列表化（段落 {run[0].paragraph_index}~{run[-1].paragraph_index}）"
+        )
+
+    metrics["consecutive_short_body_triggered"] = any(
+        "结构化改写机会" in r for r in reasons
+    )
+
+    return {
+        "triggered": bool(triggered_indices),
+        "reasons": reasons,
+        "triggered_indices": triggered_indices,
+        "metrics": metrics,
+    }
+
+
 class ModeRouter:
     """
     三模式路由器：根据 mode 参数（或 LLM_MODE 环境变量）将分析请求路由到
     rule / llm / hybrid 三种处理逻辑。
+
+    模式职责边界
+    ============
+    rule：仅执行确定性规则，不调用 LLM，标签来源为 rule_based_labels。
+
+    llm：以 LLM 为主进行全量语义审阅（结构标注 + 建议），规则仅用于未覆盖段落的兜底。
+         输出包含 _llm_review 键，携带 DocumentReview（suggestions 含可执行建议）。
+
+    hybrid：先运行规则层，仅当触发条件命中时调用 LLM，LLM 只处理触发段落（≤20%
+            高价值任务）。输出包含 _hybrid_triggers 键（触发原因/指标）和 _llm_review
+            键（若触发了 LLM）。若无触发，完全等同于规则模式，不会调用 LLM。
     """
 
     def __init__(self, mode: str = LLM_MODE):
@@ -94,53 +200,140 @@ class ModeRouter:
 
     def _llm(self, doc, blocks, rule_labels: Dict) -> Dict:
         """
-        纯 LLM 模式：完全由大模型分析，未覆盖段落用规则补全。
+        纯 LLM 模式：LLM 为主进行全量语义审阅（结构标注 + 建议），规则用于兜底。
+
+        与 hybrid 模式的区别：
+        - 无触发门控，始终全量调用 LLM
+        - 产出包含完整的 suggestions 建议列表
+        - 所有段落标签均优先采用 LLM 结果
         """
-        structure = self.analyzer.analyze(doc)
-        labels = self._map_to_block_ids(structure, blocks, rule_labels)
+        review: DocumentReview = self.analyzer.client.call_review(
+            paragraphs=self._extract_paragraphs(doc),
+            triggered_indices=None,  # 全量审阅
+            rule_labels=None,
+        )
+        labels = self._map_review_to_block_ids(review, blocks, rule_labels)
         labels["_source"] = "llm"
+        # 将 DocumentReview 序列化后存入结果，供上层提取到报告中
+        labels["_llm_review"] = {
+            "suggestions": [s.model_dump() for s in review.suggestions],
+            "auto_applied": [],    # llm 模式下建议均未自动应用（仅标注，由 formatter 处理）
+            "manual_pending": [
+                s.model_dump() for s in review.suggestions if s.apply_mode == "manual"
+            ],
+        }
         return labels
 
     def _hybrid(self, doc, blocks, rule_labels: Dict) -> Dict:
         """
-        混合模式：LLM 主判断，置信度不足或失败时用规则兜底。
+        混合模式：先运行规则层，仅当触发条件命中时调用 LLM。
+
+        执行流程：
+        1. 使用规则标签作为基准
+        2. 评估触发条件（unknown/标题歧义/潜在列表）
+        3. 仅在触发时调用 LLM，仅审阅触发段落（≤20% 高价值任务）
+        4. 合并：触发段落用 LLM 结果（置信度 < 阈值则回退规则），其余保留规则
+        5. 在 _hybrid_triggers 中记录触发原因与指标
         """
-        try:
-            structure = self.analyzer.analyze(doc)
-        except LLMCallError as e:
-            # LLM 完全失败，回退纯规则，返回副本避免修改调用方的字典
-            result = dict(rule_labels)
-            result.setdefault("_warnings", [])
-            result["_warnings"].append(
-                f"LLM 调用失败，hybrid 模式已全量回退到纯规则: {e}"
-            )
+        # 步骤 1: 计算触发条件
+        trigger_info = _compute_hybrid_triggers(blocks, rule_labels)
+
+        result: Dict = {}
+        for b in blocks:
+            result[b.block_id] = rule_labels.get(b.block_id, "body")
+
+        result["_source"] = "hybrid"
+        result["_hybrid_triggers"] = {
+            "triggered": trigger_info["triggered"],
+            "reasons": trigger_info["reasons"],
+            "triggered_paragraph_count": len(trigger_info["triggered_indices"]),
+            "total_paragraph_count": len(blocks),
+            "metrics": trigger_info["metrics"],
+        }
+
+        if not trigger_info["triggered"]:
+            # 无触发：完全使用规则结果，不调用 LLM
+            result["_hybrid_triggers"]["llm_called"] = False
             return result
 
-        # 找出置信度低的段落索引
-        low_conf_indices = set(_structure_low_confidence(structure))
-
-        # 按 paragraph_index 构建 LLM 标签
-        llm_para_labels = _structure_to_labels(structure)
-
-        # 构建 block_id -> role 映射（优先 LLM，低置信度则用规则兜底）
-        merged: Dict = {}
+        # 步骤 2: 调用 LLM（仅针对触发段落）
+        all_paragraphs = self._extract_paragraphs(doc)
+        # 构建 paragraph_index -> rule_role 映射供 LLM 参考
+        para_idx_to_rule: Dict[int, str] = {}
         for b in blocks:
-            if b.paragraph_index in low_conf_indices:
-                # 规则兜底
-                merged[b.block_id] = rule_labels.get(b.block_id, "body")
-            elif b.paragraph_index in llm_para_labels:
-                merged[b.block_id] = llm_para_labels[b.paragraph_index]
-            else:
-                # LLM 未覆盖到的段落，用规则补全
-                merged[b.block_id] = rule_labels.get(b.block_id, "body")
+            para_idx_to_rule[b.paragraph_index] = rule_labels.get(b.block_id, "body")
 
-        merged["_source"] = "hybrid"
-        if low_conf_indices:
-            merged.setdefault("_warnings", [])
-            merged["_warnings"].append(
-                f"hybrid 模式：{len(low_conf_indices)} 个段落置信度 < {HYBRID_CONFIDENCE_THRESHOLD}，已使用规则兜底"
+        try:
+            review: DocumentReview = self.analyzer.client.call_review(
+                paragraphs=all_paragraphs,
+                triggered_indices=sorted(trigger_info["triggered_indices"]),
+                rule_labels=para_idx_to_rule,
             )
-        return merged
+        except LLMCallError as e:
+            # LLM 失败，保留规则结果并记录警告
+            result.setdefault("_warnings", [])
+            result["_warnings"].append(
+                f"hybrid 模式 LLM 审阅失败，已保留规则结果: {e}"
+            )
+            result["_hybrid_triggers"]["llm_called"] = False
+            result["_hybrid_triggers"]["llm_error"] = str(e)
+            return result
+
+        result["_hybrid_triggers"]["llm_called"] = True
+
+        # 步骤 3: 合并 LLM 与规则标签（仅触发段落使用 LLM 结果）
+        llm_para_labels: Dict[int, str] = _structure_to_labels(review)
+        low_conf_indices = set(_structure_low_confidence(review))
+
+        for b in blocks:
+            if b.paragraph_index not in trigger_info["triggered_indices"]:
+                # 非触发段落：保留规则结果
+                continue
+            if b.paragraph_index in low_conf_indices:
+                # LLM 置信度低：回退规则
+                pass  # 已在上方用规则初始化
+            elif b.paragraph_index in llm_para_labels:
+                result[b.block_id] = llm_para_labels[b.paragraph_index]
+
+        if low_conf_indices:
+            result.setdefault("_warnings", [])
+            result["_warnings"].append(
+                f"hybrid 模式：{len(low_conf_indices)} 个触发段落 LLM 置信度 < "
+                f"{HYBRID_CONFIDENCE_THRESHOLD}，已回退规则标签"
+            )
+
+        # 步骤 4: 记录 LLM 建议
+        result["_llm_review"] = {
+            "suggestions": [s.model_dump() for s in review.suggestions],
+            "auto_applied": [],
+            "manual_pending": [
+                s.model_dump() for s in review.suggestions if s.apply_mode == "manual"
+            ],
+        }
+
+        return result
+
+    @staticmethod
+    def _extract_paragraphs(doc) -> List[str]:
+        """从 doc 提取所有段落文本（含表格段落），保持索引一致。"""
+        from core.docx_utils import iter_all_paragraphs
+        return [p.text for p in iter_all_paragraphs(doc)]
+
+    def _map_review_to_block_ids(
+        self,
+        review: DocumentReview,
+        blocks,
+        rule_labels: Dict,
+    ) -> Dict:
+        """将 DocumentReview（按 paragraph_index 索引）映射到 block_id 索引。"""
+        llm_para_labels = _structure_to_labels(review)
+        result: Dict = {}
+        for b in blocks:
+            if b.paragraph_index in llm_para_labels:
+                result[b.block_id] = llm_para_labels[b.paragraph_index]
+            else:
+                result[b.block_id] = rule_labels.get(b.block_id, "body")
+        return result
 
     def _map_to_block_ids(
         self,
