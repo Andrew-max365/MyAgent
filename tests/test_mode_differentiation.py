@@ -4,17 +4,16 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-from docx import Document
-
 from agent.mode_router import (
     ModeRouter,
     _compute_hybrid_triggers,
-    HYBRID_CONFIDENCE_THRESHOLD,
     HYBRID_TRIGGER_UNKNOWN_MIN,
 )
 from agent.llm_client import LLMCallError
-from agent.schema import DocumentReview, LLMSuggestion, ParagraphTag
+from agent.schema import (
+    DocumentProofread, ProofreadIssue,
+    DocumentReview, LLMSuggestion, ParagraphTag,
+)
 from core.parser import Block
 
 
@@ -30,8 +29,14 @@ def _make_block(block_id: int, paragraph_index: int, text: str) -> Block:
     return b
 
 
+def _make_proofread(issues_data=None) -> DocumentProofread:
+    """构造 DocumentProofread 测试对象。"""
+    issues = [ProofreadIssue(**i) for i in (issues_data or [])]
+    return DocumentProofread(doc_language="zh", issues=issues)
+
+
 def _make_review(paragraphs_data, suggestions=None) -> DocumentReview:
-    """构造 DocumentReview 测试对象。"""
+    """构造 DocumentReview 测试对象（保留供 schema 测试使用）。"""
     paras = [ParagraphTag(**p) for p in paragraphs_data]
     suggs = [LLMSuggestion(**s) for s in (suggestions or [])]
     return DocumentReview(
@@ -134,12 +139,12 @@ class TestRuleMode:
         # DocAnalyzer 从未被初始化
         assert router._analyzer is None
 
-    def test_rule_mode_does_not_produce_llm_review(self):
-        """rule 模式结果不应含 _llm_review 键。"""
+    def test_rule_mode_does_not_produce_llm_proofread(self):
+        """rule 模式结果不应含 _llm_proofread 键。"""
         router = ModeRouter(mode="rule")
         blocks = [_make_block(0, 0, "正文")]
         result = router.route(MagicMock(), blocks, {0: "body"})
-        assert "_llm_review" not in result
+        assert "_llm_proofread" not in result
         assert "_hybrid_triggers" not in result
 
 
@@ -168,8 +173,8 @@ class TestHybridNoTrigger:
         # 标签来自规则
         assert result[0] == "h1"
         assert result[1] == "body"
-        # 无 llm_review
-        assert "_llm_review" not in result
+        # 无 llm_proofread
+        assert "_llm_proofread" not in result
 
     def test_hybrid_preserves_rule_labels_when_no_trigger(self):
         """无触发时 hybrid 结果与 rule 结果完全一致（标签层面）。"""
@@ -195,30 +200,20 @@ class TestHybridNoTrigger:
 
 
 # ---------------------------------------------------------------------------
-# 4. hybrid 模式：触发时调用 LLM（仅触发段落）
+# 4. hybrid 模式：触发时调用 LLM（仅对触发段落校对）
 # ---------------------------------------------------------------------------
 
 class TestHybridWithTrigger:
-    def _make_review_for_triggered(self, triggered_idx: int) -> DocumentReview:
-        return _make_review(
-            paragraphs_data=[
+    def _make_proofread_for_triggered(self, triggered_idx: int) -> DocumentProofread:
+        return _make_proofread(
+            issues_data=[
                 {
-                    "index": triggered_idx,
-                    "text_preview": "触发段落",
-                    "paragraph_type": "list_item",
-                    "confidence": 0.92,
-                }
-            ],
-            suggestions=[
-                {
-                    "category": "structure",
+                    "issue_type": "punctuation",
                     "severity": "medium",
-                    "confidence": 0.85,
-                    "evidence": f"段落{triggered_idx}: 短正文段落",
-                    "suggestion": "建议改写为列表",
-                    "rationale": "多个短段落适合列表化",
-                    "apply_mode": "manual",
                     "paragraph_index": triggered_idx,
+                    "evidence": "条目内容，短文本",
+                    "suggestion": "句末应加句号",
+                    "rationale": "该句缺少句末标点",
                 }
             ],
         )
@@ -230,10 +225,10 @@ class TestHybridWithTrigger:
         ]
         rule_labels = {i: "body" for i in range(4)}
 
-        mock_review = self._make_review_for_triggered(0)
+        mock_proofread = self._make_proofread_for_triggered(0)
         router = ModeRouter(mode="hybrid")
         mock_client = MagicMock()
-        mock_client.call_review.return_value = mock_review
+        mock_client.call_proofread.return_value = mock_proofread
         mock_analyzer = MagicMock()
         mock_analyzer.client = mock_client
         router._analyzer = mock_analyzer
@@ -243,19 +238,19 @@ class TestHybridWithTrigger:
 
         assert result["_hybrid_triggers"]["triggered"] is True
         assert result["_hybrid_triggers"]["llm_called"] is True
-        mock_client.call_review.assert_called_once()
+        mock_client.call_proofread.assert_called_once()
 
-    def test_hybrid_llm_review_contains_suggestions(self):
-        """hybrid 触发后结果中应包含 _llm_review 及建议。"""
+    def test_hybrid_llm_proofread_contains_issues(self):
+        """hybrid 触发后结果中应包含 _llm_proofread 及问题列表。"""
         blocks = [
             _make_block(i, i, f"条目{i}，短文本") for i in range(4)
         ]
         rule_labels = {i: "body" for i in range(4)}
 
-        mock_review = self._make_review_for_triggered(0)
+        mock_proofread = self._make_proofread_for_triggered(0)
         router = ModeRouter(mode="hybrid")
         mock_client = MagicMock()
-        mock_client.call_review.return_value = mock_review
+        mock_client.call_proofread.return_value = mock_proofread
         mock_analyzer = MagicMock()
         mock_analyzer.client = mock_client
         router._analyzer = mock_analyzer
@@ -263,19 +258,17 @@ class TestHybridWithTrigger:
         with patch.object(ModeRouter, "_extract_paragraphs", return_value=["条目0", "条目1", "条目2", "条目3"]):
             result = router.route(MagicMock(), blocks, rule_labels)
 
-        assert "_llm_review" in result
-        review = result["_llm_review"]
-        assert isinstance(review["suggestions"], list)
-        assert len(review["suggestions"]) > 0
-        # 验证建议字段完整性
-        s = review["suggestions"][0]
-        assert "category" in s
-        assert "severity" in s
-        assert "confidence" in s
-        assert "evidence" in s
-        assert "suggestion" in s
-        assert "rationale" in s
-        assert "apply_mode" in s
+        assert "_llm_proofread" in result
+        proofread = result["_llm_proofread"]
+        assert isinstance(proofread["issues"], list)
+        assert len(proofread["issues"]) > 0
+        # 验证问题字段完整性
+        issue = proofread["issues"][0]
+        assert "issue_type" in issue
+        assert "severity" in issue
+        assert "evidence" in issue
+        assert "suggestion" in issue
+        assert "rationale" in issue
 
     def test_hybrid_llm_called_true_on_connection_error(self):
         """hybrid 模式 LLM 调用失败时，llm_called 应为 True（已尝试），llm_error 应记录错误信息。"""
@@ -286,7 +279,7 @@ class TestHybridWithTrigger:
 
         router = ModeRouter(mode="hybrid")
         mock_client = MagicMock()
-        mock_client.call_review.side_effect = LLMCallError(
+        mock_client.call_proofread.side_effect = LLMCallError(
             "LLM 网络连接失败 (尝试 3/3): Connection error.",
             error_type="connect_error",
         )
@@ -308,8 +301,8 @@ class TestHybridWithTrigger:
         for i in range(4):
             assert result[i] == "body"
 
-    def test_hybrid_only_reviews_triggered_paragraphs(self):
-        """hybrid 模式 call_review 调用时应传入 triggered_indices（非 None）。"""
+    def test_hybrid_only_proofreads_triggered_paragraphs(self):
+        """hybrid 模式 call_proofread 调用时应传入 paragraph_indices（非 None）。"""
         blocks = [
             _make_block(0, 0, "第一章"),               # h1 - 不触发
             _make_block(1, 1, "条目一，短文本"),         # body - 触发
@@ -319,15 +312,10 @@ class TestHybridWithTrigger:
         ]
         rule_labels = {0: "h1", 1: "body", 2: "body", 3: "body", 4: "body"}
 
-        mock_review = _make_review(
-            paragraphs_data=[
-                {"index": i, "text_preview": f"条目{i}", "paragraph_type": "list_item", "confidence": 0.9}
-                for i in range(1, 5)
-            ]
-        )
+        mock_proofread = _make_proofread()
         router = ModeRouter(mode="hybrid")
         mock_client = MagicMock()
-        mock_client.call_review.return_value = mock_review
+        mock_client.call_proofread.return_value = mock_proofread
         mock_analyzer = MagicMock()
         mock_analyzer.client = mock_client
         router._analyzer = mock_analyzer
@@ -335,51 +323,73 @@ class TestHybridWithTrigger:
         with patch.object(ModeRouter, "_extract_paragraphs", return_value=["第一章", "条目一", "条目二", "条目三", "条目四"]):
             router.route(MagicMock(), blocks, rule_labels)
 
-        call_kwargs = mock_client.call_review.call_args
-        # triggered_indices 应非 None，且不包含 0（h1 未触发）
-        if call_kwargs.kwargs.get("triggered_indices") is not None:
-            triggered = call_kwargs.kwargs["triggered_indices"]
+        call_kwargs = mock_client.call_proofread.call_args
+        # paragraph_indices 应非 None，且不包含 0（h1 未触发）
+        if call_kwargs.kwargs.get("paragraph_indices") is not None:
+            indices = call_kwargs.kwargs["paragraph_indices"]
         elif len(call_kwargs.args) > 1:
-            triggered = call_kwargs.args[1]
+            indices = call_kwargs.args[1]
         else:
-            triggered = None
-        assert triggered is not None, "call_review 应传入 triggered_indices"
-        assert 0 not in triggered, "未触发的段落不应包含在 triggered_indices 中"
+            indices = None
+        assert indices is not None, "call_proofread 应传入 paragraph_indices"
+        assert 0 not in indices, "未触发的段落不应包含在 paragraph_indices 中"
+
+    def test_hybrid_rule_labels_unchanged_after_proofread(self):
+        """hybrid 触发后，排版标签仍应来自规则（LLM 校对不影响结构标签）。"""
+        blocks = [
+            _make_block(0, 0, "第一章"),
+            _make_block(1, 1, "条目一，短文本"),
+            _make_block(2, 2, "条目二，短文本"),
+            _make_block(3, 3, "条目三，短文本"),
+            _make_block(4, 4, "条目四，短文本"),
+        ]
+        rule_labels = {0: "h1", 1: "body", 2: "body", 3: "body", 4: "body"}
+
+        mock_proofread = _make_proofread()
+        router = ModeRouter(mode="hybrid")
+        mock_client = MagicMock()
+        mock_client.call_proofread.return_value = mock_proofread
+        mock_analyzer = MagicMock()
+        mock_analyzer.client = mock_client
+        router._analyzer = mock_analyzer
+
+        with patch.object(ModeRouter, "_extract_paragraphs", return_value=["第一章", "条目一", "条目二", "条目三", "条目四"]):
+            result = router.route(MagicMock(), blocks, rule_labels)
+
+        # 排版标签来自规则，不受 LLM 影响
+        assert result[0] == "h1"
+        for i in range(1, 5):
+            assert result[i] == "body"
 
 
 # ---------------------------------------------------------------------------
-# 5. LLM 模式：全量审阅，always calls LLM
+# 5. LLM 模式：全量校对，始终调用 LLM
 # ---------------------------------------------------------------------------
 
 class TestLLMMode:
     def test_llm_mode_always_calls_llm(self):
-        """llm 模式应始终调用 LLM 进行全量审阅。"""
+        """llm 模式应始终调用 LLM 进行全量校对。"""
         blocks = [
             _make_block(0, 0, "第一章"),
             _make_block(1, 1, "正文内容"),
         ]
         rule_labels = {0: "h1", 1: "body"}
 
-        mock_review = _make_review(
-            paragraphs_data=[
-                {"index": 0, "text_preview": "第一章", "paragraph_type": "title_1", "confidence": 0.98},
-                {"index": 1, "text_preview": "正文", "paragraph_type": "body", "confidence": 0.95},
-            ],
-            suggestions=[
+        mock_proofread = _make_proofread(
+            issues_data=[
                 {
-                    "category": "style",
-                    "severity": "low",
-                    "confidence": 0.7,
-                    "evidence": "段落1: 正文内容",
-                    "suggestion": "建议增加过渡语",
-                    "rationale": "增强可读性",
-                    "apply_mode": "manual",
+                    "issue_type": "typo",
+                    "severity": "high",
+                    "paragraph_index": 1,
+                    "evidence": "正文内容",
+                    "suggestion": "建议修改为：正文内容。",
+                    "rationale": "句末缺少标点",
                 }
-            ],
+            ]
         )
         router = ModeRouter(mode="llm")
         mock_client = MagicMock()
-        mock_client.call_review.return_value = mock_review
+        mock_client.call_proofread.return_value = mock_proofread
         mock_analyzer = MagicMock()
         mock_analyzer.client = mock_client
         router._analyzer = mock_analyzer
@@ -388,36 +398,32 @@ class TestLLMMode:
             result = router.route(MagicMock(), blocks, rule_labels)
 
         assert result["_source"] == "llm"
-        mock_client.call_review.assert_called_once()
-        # llm 模式的 call_review 应传 triggered_indices=None（全量审阅）
-        call_kwargs = mock_client.call_review.call_args
-        triggered = call_kwargs.kwargs.get("triggered_indices")
-        assert triggered is None, "llm 模式应全量审阅（triggered_indices=None）"
+        mock_client.call_proofread.assert_called_once()
+        # llm 模式的 call_proofread 应传 paragraph_indices=None（全量校对）
+        call_kwargs = mock_client.call_proofread.call_args
+        indices = call_kwargs.kwargs.get("paragraph_indices")
+        assert indices is None, "llm 模式应全量校对（paragraph_indices=None）"
 
-    def test_llm_mode_produces_llm_review(self):
-        """llm 模式应产出 _llm_review 键（含 suggestions）。"""
+    def test_llm_mode_produces_llm_proofread(self):
+        """llm 模式应产出 _llm_proofread 键（含 issues）。"""
         blocks = [_make_block(0, 0, "第一章")]
         rule_labels = {0: "h1"}
 
-        mock_review = _make_review(
-            paragraphs_data=[
-                {"index": 0, "text_preview": "第一章", "paragraph_type": "title_1", "confidence": 0.98},
-            ],
-            suggestions=[
+        mock_proofread = _make_proofread(
+            issues_data=[
                 {
-                    "category": "hierarchy",
-                    "severity": "high",
-                    "confidence": 0.9,
-                    "evidence": "段落0: 第一章",
-                    "suggestion": "建议使用一级标题样式",
-                    "rationale": "统一标题层级",
-                    "apply_mode": "auto",
+                    "issue_type": "punctuation",
+                    "severity": "medium",
+                    "paragraph_index": 0,
+                    "evidence": "第一章",
+                    "suggestion": "章标题通常不加标点",
+                    "rationale": "标点规范",
                 }
-            ],
+            ]
         )
         router = ModeRouter(mode="llm")
         mock_client = MagicMock()
-        mock_client.call_review.return_value = mock_review
+        mock_client.call_proofread.return_value = mock_proofread
         mock_analyzer = MagicMock()
         mock_analyzer.client = mock_client
         router._analyzer = mock_analyzer
@@ -425,20 +431,41 @@ class TestLLMMode:
         with patch.object(ModeRouter, "_extract_paragraphs", return_value=["第一章"]):
             result = router.route(MagicMock(), blocks, rule_labels)
 
-        assert "_llm_review" in result
-        review = result["_llm_review"]
-        assert len(review["suggestions"]) == 1
-        # manual_pending 应只含 apply_mode=manual 的建议
-        assert len(review["manual_pending"]) == 0  # apply_mode=auto 不在 manual_pending
+        assert "_llm_proofread" in result
+        proofread = result["_llm_proofread"]
+        assert len(proofread["issues"]) == 1
         assert result["_source"] == "llm"
+
+    def test_llm_mode_rule_labels_unchanged(self):
+        """llm 模式下排版标签应与规则标签一致（LLM 校对不影响结构标签）。"""
+        blocks = [
+            _make_block(0, 0, "第一章"),
+            _make_block(1, 1, "正文"),
+        ]
+        rule_labels = {0: "h1", 1: "body"}
+
+        mock_proofread = _make_proofread()
+        router = ModeRouter(mode="llm")
+        mock_client = MagicMock()
+        mock_client.call_proofread.return_value = mock_proofread
+        mock_analyzer = MagicMock()
+        mock_analyzer.client = mock_client
+        router._analyzer = mock_analyzer
+
+        with patch.object(ModeRouter, "_extract_paragraphs", return_value=["第一章", "正文"]):
+            result = router.route(MagicMock(), blocks, rule_labels)
+
+        assert result[0] == "h1"
+        assert result[1] == "body"
+        assert "_hybrid_triggers" not in result
 
     def test_llm_mode_does_not_produce_hybrid_triggers(self):
         """llm 模式结果不应含 _hybrid_triggers 键。"""
         blocks = [_make_block(0, 0, "正文")]
-        mock_review = _make_review([{"index": 0, "text_preview": "正文", "paragraph_type": "body", "confidence": 0.9}])
+        mock_proofread = _make_proofread()
         router = ModeRouter(mode="llm")
         mock_client = MagicMock()
-        mock_client.call_review.return_value = mock_review
+        mock_client.call_proofread.return_value = mock_proofread
         mock_analyzer = MagicMock()
         mock_analyzer.client = mock_client
         router._analyzer = mock_analyzer
@@ -450,7 +477,88 @@ class TestLLMMode:
 
 
 # ---------------------------------------------------------------------------
-# 6. LLMSuggestion 字段完整性
+# 6. ProofreadIssue / DocumentProofread 字段完整性
+# ---------------------------------------------------------------------------
+
+class TestProofreadSchema:
+    def test_proofread_issue_required_fields(self):
+        """ProofreadIssue 的必要字段应均可设置并序列化。"""
+        issue = ProofreadIssue(
+            issue_type="typo",
+            severity="high",
+            paragraph_index=2,
+            evidence="公文",
+            suggestion="公务",
+            rationale="字形相似，易混淆",
+        )
+        d = issue.model_dump()
+        for field in ("issue_type", "severity", "evidence", "suggestion", "rationale"):
+            assert field in d, f"字段 {field} 缺失"
+
+    def test_proofread_issue_all_types_valid(self):
+        """所有 issue_type 枚举值应可构造。"""
+        for itype in ("typo", "punctuation", "standardization"):
+            issue = ProofreadIssue(
+                issue_type=itype,
+                severity="low",
+                evidence="e",
+                suggestion="s",
+                rationale="r",
+            )
+            assert issue.issue_type == itype
+
+    def test_document_proofread_issues_optional(self):
+        """DocumentProofread 的 issues 应默认为空列表。"""
+        proofread = DocumentProofread()
+        assert proofread.issues == []
+
+
+# ---------------------------------------------------------------------------
+# 7. LLMClient canonicalize proofreading
+# ---------------------------------------------------------------------------
+
+class TestLLMClientCanonicalizeProofread:
+    def test_canonicalize_proofread_issue_normalizes_fields(self):
+        from agent.llm_client import LLMClient
+        raw = {
+            "issue_type": "not_valid",  # -> standardization
+            "severity": "extreme",      # -> low
+        }
+        result = LLMClient._canonicalize_proofread_issue(raw)
+        assert result["issue_type"] == "standardization"
+        assert result["severity"] == "low"
+        assert result["evidence"] == ""
+        assert result["suggestion"] == ""
+        assert result["rationale"] == ""
+
+    def test_canonicalize_proofread_payload_with_issues(self):
+        from agent.llm_client import LLMClient
+        payload = {
+            "doc_language": "zh",
+            "issues": [
+                {
+                    "issue_type": "typo",
+                    "severity": "high",
+                    "paragraph_index": 0,
+                    "evidence": "公文",
+                    "suggestion": "公务",
+                    "rationale": "错别字",
+                }
+            ],
+        }
+        result = LLMClient._canonicalize_proofread_payload(payload)
+        assert len(result["issues"]) == 1
+        assert result["issues"][0]["issue_type"] == "typo"
+
+    def test_canonicalize_proofread_payload_missing_issues(self):
+        from agent.llm_client import LLMClient
+        payload = {"doc_language": "zh"}
+        result = LLMClient._canonicalize_proofread_payload(payload)
+        assert result["issues"] == []
+
+
+# ---------------------------------------------------------------------------
+# 8. LLMSuggestion 字段完整性（保留向后兼容测试）
 # ---------------------------------------------------------------------------
 
 class TestLLMSuggestionSchema:
@@ -505,7 +613,7 @@ class TestLLMSuggestionSchema:
 
 
 # ---------------------------------------------------------------------------
-# 7. LLMClient canonicalize suggestion
+# 9. LLMClient canonicalize suggestion (backward compat)
 # ---------------------------------------------------------------------------
 
 class TestLLMClientCanonicalizeSuggestion:
@@ -557,3 +665,4 @@ class TestLLMClientCanonicalizeSuggestion:
         }
         result = LLMClient._canonicalize_review_payload(payload)
         assert result["suggestions"] == []
+
