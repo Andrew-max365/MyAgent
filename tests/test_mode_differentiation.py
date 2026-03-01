@@ -13,6 +13,7 @@ from agent.mode_router import (
     HYBRID_CONFIDENCE_THRESHOLD,
     HYBRID_TRIGGER_UNKNOWN_MIN,
 )
+from agent.llm_client import LLMCallError
 from agent.schema import DocumentReview, LLMSuggestion, ParagraphTag
 from core.parser import Block
 
@@ -275,6 +276,37 @@ class TestHybridWithTrigger:
         assert "suggestion" in s
         assert "rationale" in s
         assert "apply_mode" in s
+
+    def test_hybrid_llm_called_true_on_connection_error(self):
+        """hybrid 模式 LLM 调用失败时，llm_called 应为 True（已尝试），llm_error 应记录错误信息。"""
+        blocks = [
+            _make_block(i, i, f"条目{i}，短文本") for i in range(4)
+        ]
+        rule_labels = {i: "body" for i in range(4)}
+
+        router = ModeRouter(mode="hybrid")
+        mock_client = MagicMock()
+        mock_client.call_review.side_effect = LLMCallError(
+            "LLM 网络连接失败 (尝试 3/3): Connection error.",
+            error_type="connect_error",
+        )
+        mock_analyzer = MagicMock()
+        mock_analyzer.client = mock_client
+        router._analyzer = mock_analyzer
+
+        with patch.object(ModeRouter, "_extract_paragraphs", return_value=[f"条目{i}" for i in range(4)]):
+            result = router.route(MagicMock(), blocks, rule_labels)
+
+        triggers = result["_hybrid_triggers"]
+        assert triggers["triggered"] is True
+        assert triggers["llm_called"] is True, (
+            "llm_called 应为 True：LLM 已被调用（尝试了 3 次），即使最终连接失败"
+        )
+        assert "llm_error" in triggers
+        assert "Connection error" in triggers["llm_error"]
+        # 规则标签应被保留
+        for i in range(4):
+            assert result[i] == "body"
 
     def test_hybrid_only_reviews_triggered_paragraphs(self):
         """hybrid 模式 call_review 调用时应传入 triggered_indices（非 None）。"""

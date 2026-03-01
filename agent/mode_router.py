@@ -270,12 +270,12 @@ class ModeRouter:
                 rule_labels=para_idx_to_rule,
             )
         except LLMCallError as e:
-            # LLM 失败，保留规则结果并记录警告
+            # LLM 已尝试调用但失败，保留规则结果并记录警告
             result.setdefault("_warnings", [])
             result["_warnings"].append(
                 f"hybrid 模式 LLM 审阅失败，已保留规则结果: {e}"
             )
-            result["_hybrid_triggers"]["llm_called"] = False
+            result["_hybrid_triggers"]["llm_called"] = True
             result["_hybrid_triggers"]["llm_error"] = str(e)
             return result
 
