@@ -12,7 +12,6 @@ from agent.mode_router import (
 from agent.llm_client import LLMCallError
 from agent.schema import (
     DocumentProofread, ProofreadIssue,
-    DocumentReview, LLMSuggestion, ParagraphTag,
 )
 from core.parser import Block
 
@@ -33,18 +32,6 @@ def _make_proofread(issues_data=None) -> DocumentProofread:
     """构造 DocumentProofread 测试对象。"""
     issues = [ProofreadIssue(**i) for i in (issues_data or [])]
     return DocumentProofread(doc_language="zh", issues=issues)
-
-
-def _make_review(paragraphs_data, suggestions=None) -> DocumentReview:
-    """构造 DocumentReview 测试对象（保留供 schema 测试使用）。"""
-    paras = [ParagraphTag(**p) for p in paragraphs_data]
-    suggs = [LLMSuggestion(**s) for s in (suggestions or [])]
-    return DocumentReview(
-        doc_language="zh",
-        total_paragraphs=len(paras),
-        paragraphs=paras,
-        suggestions=suggs,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -556,113 +543,4 @@ class TestLLMClientCanonicalizeProofread:
         result = LLMClient._canonicalize_proofread_payload(payload)
         assert result["issues"] == []
 
-
-# ---------------------------------------------------------------------------
-# 8. LLMSuggestion 字段完整性（保留向后兼容测试）
-# ---------------------------------------------------------------------------
-
-class TestLLMSuggestionSchema:
-    def test_suggestion_required_fields(self):
-        """LLMSuggestion 的必要字段应均可设置并序列化。"""
-        s = LLMSuggestion(
-            category="hierarchy",
-            severity="high",
-            confidence=0.9,
-            evidence="段落2: 第一节 概述",
-            suggestion="建议将「第一节」改为二级标题样式",
-            rationale="当前使用了一级标题字号但层级为二级",
-            apply_mode="manual",
-            paragraph_index=2,
-        )
-        d = s.model_dump()
-        for field in ("category", "severity", "confidence", "evidence", "suggestion", "rationale", "apply_mode"):
-            assert field in d, f"字段 {field} 缺失"
-
-    def test_suggestion_default_apply_mode(self):
-        """apply_mode 默认值应为 manual。"""
-        s = LLMSuggestion(
-            category="ambiguity",
-            severity="low",
-            confidence=0.6,
-            evidence="段落5",
-            suggestion="改写",
-            rationale="歧义",
-        )
-        assert s.apply_mode == "manual"
-
-    def test_suggestion_all_categories_valid(self):
-        """所有 category 枚举值应可构造。"""
-        for cat in ("hierarchy", "ambiguity", "structure", "style", "terminology"):
-            s = LLMSuggestion(
-                category=cat,
-                severity="low",
-                confidence=0.5,
-                evidence="e",
-                suggestion="s",
-                rationale="r",
-            )
-            assert s.category == cat
-
-    def test_document_review_suggestions_optional(self):
-        """DocumentReview 的 suggestions 应默认为空列表。"""
-        review = DocumentReview(
-            total_paragraphs=1,
-            paragraphs=[ParagraphTag(index=0, text_preview="x", paragraph_type="body", confidence=0.9)],
-        )
-        assert review.suggestions == []
-
-
-# ---------------------------------------------------------------------------
-# 9. LLMClient canonicalize suggestion (backward compat)
-# ---------------------------------------------------------------------------
-
-class TestLLMClientCanonicalizeSuggestion:
-    def test_canonicalize_suggestion_normalizes_fields(self):
-        from agent.llm_client import LLMClient
-        raw = {
-            "category": "not_valid",  # -> ambiguity
-            "severity": "extreme",    # -> low
-            "confidence": "85%",      # -> 0.85
-            "apply_mode": "unknown",  # -> manual
-        }
-        result = LLMClient._canonicalize_suggestion(raw)
-        assert result["category"] == "ambiguity"
-        assert result["severity"] == "low"
-        assert abs(result["confidence"] - 0.85) < 1e-9
-        assert result["apply_mode"] == "manual"
-        assert result["evidence"] == ""
-        assert result["suggestion"] == ""
-        assert result["rationale"] == ""
-
-    def test_canonicalize_review_payload_with_suggestions(self):
-        from agent.llm_client import LLMClient
-        payload = {
-            "doc_language": "zh",
-            "paragraphs": [
-                {"index": 0, "text_preview": "标题", "paragraph_type": "title_1", "confidence": 0.9},
-            ],
-            "suggestions": [
-                {
-                    "category": "hierarchy",
-                    "severity": "high",
-                    "confidence": 0.8,
-                    "evidence": "段落0",
-                    "suggestion": "调整层级",
-                    "rationale": "层级混乱",
-                    "apply_mode": "manual",
-                }
-            ],
-        }
-        result = LLMClient._canonicalize_review_payload(payload)
-        assert len(result["suggestions"]) == 1
-        assert result["suggestions"][0]["category"] == "hierarchy"
-
-    def test_canonicalize_review_payload_missing_suggestions(self):
-        from agent.llm_client import LLMClient
-        payload = {
-            "doc_language": "zh",
-            "paragraphs": [],
-        }
-        result = LLMClient._canonicalize_review_payload(payload)
-        assert result["suggestions"] == []
 
