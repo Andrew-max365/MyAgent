@@ -1435,14 +1435,16 @@ def test_normalize_table_list_separators_four_items():
 
 # ─── LLM body-labeled list items get proper hanging indent after numPr ────────
 
-def test_llm_body_labeled_list_gets_hanging_indent():
+def test_llm_body_labeled_list_gets_first_line_indent():
     """
     Paragraphs labeled 'body' by LLM but containing list prefixes must receive
-    proper list hanging indent after step-5 numPr conversion, not the body
+    proper list first-line indent after step-5 numPr conversion, not the body
     forward first_line_indent that was applied in step 4.
     """
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
-    hanging_pt = float(spec.raw["list_item"]["hanging_indent_pt"])
+    list_size = float(spec.raw["list_item"]["font_size_pt"])
+    first_line_chars = int(spec.raw["list_item"]["first_line_chars"])
+    expected_fli_pt = first_line_chars * list_size  # e.g. 2 * 12 = 24pt
 
     doc, blocks, labels = _make_doc_blocks_labels([
         ("body", "（1）第一项内容"),  # LLM mis-labeled as body
@@ -1456,27 +1458,25 @@ def test_llm_body_labeled_list_gets_hanging_indent():
     for p in non_blank:
         assert _is_list_p(p), f"Expected numPr on {p.text!r}"
         fli = p.paragraph_format.first_line_indent
-        # Must be negative (hanging) — the default spec uses hanging_indent_pt=18,
-        # so zero would only occur if hanging_indent_pt=0 and first_line_chars=0.
-        assert fli is not None and fli <= 0, (
-            f"first_line_indent must be ≤0 (hanging or zero) for numPr paragraph, got {fli}"
+        # Must be positive (首行缩进) — the default spec uses first_line_chars=2.
+        assert fli is not None and float(fli) > 0, (
+            f"first_line_indent must be >0 (首行缩进) for numPr paragraph, got {fli}"
         )
-        li = p.paragraph_format.left_indent
-        assert li is not None and float(li) == pytest.approx(Pt(hanging_pt), rel=0.01), (
-            f"left_indent must equal hanging_indent_pt={hanging_pt}pt, got {li}"
+        assert float(fli) == pytest.approx(Pt(expected_fli_pt), rel=0.01), (
+            f"first_line_indent must equal {expected_fli_pt}pt, got {fli}"
         )
 
 
-def test_llm_body_labeled_first_line_indent_not_overriding_numpr():
+def test_llm_body_labeled_first_line_indent_after_numpr():
     """
     After LLM labels numbered items as 'body', step 4 sets first_line_indent=+2chars.
-    After step-5 converts them to numPr, the post-processing must override
-    first_line_indent to the hanging-indent value so numPr renders correctly.
+    After step-5 converts them to numPr, the post-processing must apply
+    the list_item first_line_indent (首行缩进) so numPr renders correctly.
     """
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
-    body_size = float(spec.raw["body"]["font_size_pt"])
-    first_line_chars = int(spec.raw["body"]["first_line_chars"])
-    forward_indent_pt = first_line_chars * body_size  # the positive body indent
+    list_size = float(spec.raw["list_item"]["font_size_pt"])
+    list_first_line_chars = int(spec.raw["list_item"]["first_line_chars"])
+    expected_fli_pt = list_first_line_chars * list_size  # the list首行缩进
 
     doc, blocks, labels = _make_doc_blocks_labels([
         ("body", "1. 第一条"),
@@ -1491,16 +1491,13 @@ def test_llm_body_labeled_first_line_indent_not_overriding_numpr():
     for p in non_blank:
         assert _is_list_p(p), f"Expected numPr on {p.text!r}"
         fli = p.paragraph_format.first_line_indent
-        # Must NOT be the positive body first_line_indent
-        assert fli is None or fli != pytest.approx(Pt(forward_indent_pt), rel=0.01), (
-            f"first_line_indent must not be the positive body indent ({forward_indent_pt}pt) "
-            f"after numPr conversion, got {fli}"
+        # Must be the list first_line_indent (positive 首行缩进)
+        assert fli is not None and float(fli) > 0, (
+            f"first_line_indent must be positive (首行缩进) for converted numPr paragraph, got {fli}"
         )
-        # Must be ≤ 0 (hanging or zero)
-        if fli is not None:
-            assert float(fli) <= 0, (
-                f"first_line_indent must be ≤0 for a converted numPr paragraph, got {fli}"
-            )
+        assert float(fli) == pytest.approx(Pt(expected_fli_pt), rel=0.01), (
+            f"first_line_indent must equal list first_line={expected_fli_pt}pt, got {fli}"
+        )
 
 
 def test_normalize_table_list_separators_preserves_semicolon_in_content():
@@ -1596,13 +1593,15 @@ def test_preamble_line_of_split_list_item_gets_first_line_indent():
     add a numPr to it and hanging indent without numPr looks wrong.
 
     Numbered fragments (e.g. "1. 保研...") must still get list_item
-    formatting (hanging indent + numPr).
+    formatting (首行缩进 + numPr).
     """
     spec = load_spec(str(SPECS_DIR / "default.yaml"))
     body_size = float(spec.raw["body"]["font_size_pt"])
     first_line_chars = int(spec.raw["body"]["first_line_chars"])
     expected_fli = first_line_chars * body_size   # positive pt value for body
-    hanging_pt = float(spec.raw["list_item"]["hanging_indent_pt"])
+    list_size = float(spec.raw["list_item"]["font_size_pt"])
+    list_first_line_chars = int(spec.raw["list_item"]["first_line_chars"])
+    expected_list_fli = list_first_line_chars * list_size  # positive pt for list
 
     # Simulate: LLM labels the whole multi-line block as list_item.
     # After step-3 split the first line has no list marker.
@@ -1628,15 +1627,15 @@ def test_preamble_line_of_split_list_item_gets_first_line_indent():
         f"Preamble首行缩进 must be ≈{expected_fli}pt (body first_line_chars), got {fli}"
     )
 
-    # Numbered items must be numPr paragraphs with hanging indent.
+    # Numbered items must be numPr paragraphs with first-line indent (首行缩进).
     for p in list_items:
         assert _is_list_p(p), f"List item must have numPr: {p.text!r}"
         item_fli = p.paragraph_format.first_line_indent
-        assert item_fli is not None and float(item_fli) <= 0, (
-            f"List item must have hanging (≤0) first_line_indent, got {item_fli}"
+        assert item_fli is not None and float(item_fli) > 0, (
+            f"List item must have positive首行缩进, got {item_fli}"
         )
-        assert float(p.paragraph_format.left_indent) == pytest.approx(Pt(hanging_pt), rel=0.01), (
-            f"List item left_indent must equal hanging_indent_pt={hanging_pt}pt"
+        assert float(item_fli) == pytest.approx(Pt(expected_list_fli), rel=0.01), (
+            f"List item首行缩进 must be ≈{expected_list_fli}pt, got {item_fli}"
         )
 
 
@@ -1690,6 +1689,6 @@ def test_all_lines_have_prefix_no_preamble_downgrade():
     for p in paras:
         assert _is_list_p(p), f"All split list_item paragraphs must have numPr: {p.text!r}"
         fli = p.paragraph_format.first_line_indent
-        assert fli is None or float(fli) <= 0, (
-            f"All list_item paragraphs must have hanging indent (≤0), got {fli}"
+        assert fli is not None and float(fli) > 0, (
+            f"All list_item paragraphs must have first-line indent (>0), got {fli}"
         )
