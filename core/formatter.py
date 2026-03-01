@@ -766,8 +766,21 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
             bold=list_bold,
             italic=list_italic,
         )
-        # Sync font/size for paragraphs converted in this step
+        # Sync font/size and indentation for paragraphs converted in this step.
+        # Critical: override any positive first_line_indent (e.g. from body role
+        # formatting in step 4) that would otherwise conflict with the numPr
+        # hanging indent and break the visual indentation of numbered list items.
+        _list_first_line_chars = int(list_cfg.get("first_line_chars", 0))
         for p in step5_converted_paras:
+            if list_hanging_indent:
+                p.paragraph_format.left_indent = Pt(list_hanging_indent)
+                p.paragraph_format.first_line_indent = Pt(-list_hanging_indent)
+            elif _list_first_line_chars:
+                p.paragraph_format.left_indent = Pt(0)
+                p.paragraph_format.first_line_indent = _first_line_indent_pt(_list_first_line_chars, list_size)
+            else:
+                p.paragraph_format.left_indent = Pt(0)
+                p.paragraph_format.first_line_indent = Pt(0)
             normalize_mixed_runs(p)
             for run in iter_paragraph_runs(p):
                 run.font.size = Pt(list_size)

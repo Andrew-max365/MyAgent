@@ -17,6 +17,7 @@ import copy
 import re
 import sys
 
+import pytest
 from docx import Document
 from docx.oxml.ns import qn
 from docx.shared import Pt
@@ -1430,6 +1431,76 @@ def test_normalize_table_list_separators_four_items():
     )
     list_paras = [p for p in iter_all_paragraphs(doc) if _is_list_p(p)]
     assert len(list_paras) == 4, f"Expected 4 numPr paragraphs, got {len(list_paras)}"
+
+
+# ─── LLM body-labeled list items get proper hanging indent after numPr ────────
+
+def test_llm_body_labeled_list_gets_hanging_indent():
+    """
+    Paragraphs labeled 'body' by LLM but containing list prefixes must receive
+    proper list hanging indent after step-5 numPr conversion, not the body
+    forward first_line_indent that was applied in step 4.
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    hanging_pt = float(spec.raw["list_item"]["hanging_indent_pt"])
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("body", "（1）第一项内容"),  # LLM mis-labeled as body
+        ("body", "（2）第二项内容"),  # LLM mis-labeled as body
+    ])
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    non_blank = [p for p in iter_all_paragraphs(doc) if not is_effectively_blank_paragraph(p)]
+    assert len(non_blank) == 2
+    for p in non_blank:
+        assert _is_list_p(p), f"Expected numPr on {p.text!r}"
+        fli = p.paragraph_format.first_line_indent
+        # Must be negative (hanging) — the default spec uses hanging_indent_pt=18,
+        # so zero would only occur if hanging_indent_pt=0 and first_line_chars=0.
+        assert fli is not None and fli <= 0, (
+            f"first_line_indent must be ≤0 (hanging or zero) for numPr paragraph, got {fli}"
+        )
+        li = p.paragraph_format.left_indent
+        assert li is not None and float(li) == pytest.approx(Pt(hanging_pt), rel=0.01), (
+            f"left_indent must equal hanging_indent_pt={hanging_pt}pt, got {li}"
+        )
+
+
+def test_llm_body_labeled_first_line_indent_not_overriding_numpr():
+    """
+    After LLM labels numbered items as 'body', step 4 sets first_line_indent=+2chars.
+    After step-5 converts them to numPr, the post-processing must override
+    first_line_indent to the hanging-indent value so numPr renders correctly.
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    body_size = float(spec.raw["body"]["font_size_pt"])
+    first_line_chars = int(spec.raw["body"]["first_line_chars"])
+    forward_indent_pt = first_line_chars * body_size  # the positive body indent
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("body", "1. 第一条"),
+        ("body", "2. 第二条"),
+        ("body", "3. 第三条"),
+    ])
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    non_blank = [p for p in iter_all_paragraphs(doc) if not is_effectively_blank_paragraph(p)]
+    assert len(non_blank) == 3
+    for p in non_blank:
+        assert _is_list_p(p), f"Expected numPr on {p.text!r}"
+        fli = p.paragraph_format.first_line_indent
+        # Must NOT be the positive body first_line_indent
+        assert fli is None or fli != pytest.approx(Pt(forward_indent_pt), rel=0.01), (
+            f"first_line_indent must not be the positive body indent ({forward_indent_pt}pt) "
+            f"after numPr conversion, got {fli}"
+        )
+        # Must be ≤ 0 (hanging or zero)
+        if fli is not None:
+            assert float(fli) <= 0, (
+                f"first_line_indent must be ≤0 for a converted numPr paragraph, got {fli}"
+            )
 
 
 def test_normalize_table_list_separators_preserves_semicolon_in_content():
