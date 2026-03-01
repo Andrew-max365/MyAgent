@@ -1,0 +1,107 @@
+# specs/gov.yaml — 政府公文排版规范
+# 依据：GB/T 9704-2012《党政机关公文格式》
+# 字体：正文仿宋_GB2312，四号（14pt）；标题黑体
+
+fonts:
+  zh: "仿宋_GB2312"
+  en: "Times New Roman"
+
+body:
+  font_size_pt: 14          # 四号
+  line_spacing: 1.75        # 公文行距略大
+  space_before_pt: 0
+  space_after_pt: 0
+  first_line_chars: 2
+
+paragraph:
+  alignment: "justify"
+
+heading:
+  h1:
+    font_size_pt: 22        # 小初，黑体（公文主标题）
+    bold: true
+    space_before_pt: 0
+    space_after_pt: 24
+    alignment: "center"
+  h2:
+    font_size_pt: 16        # 小二，楷体_GB2312（一级条款标题）
+    bold: false
+    space_before_pt: 12
+    space_after_pt: 6
+    alignment: "left"
+  h3:
+    font_size_pt: 14        # 四号，仿宋加粗（二级条款）
+    bold: true
+    space_before_pt: 6
+    space_after_pt: 3
+    alignment: "left"
+
+caption:
+  font_size_pt: 12          # 小四
+  bold: false
+  space_before_pt: 3
+  space_after_pt: 3
+  center: true
+  alignment: "center"
+
+cleanup:
+  max_consecutive_blank_paragraphs: 0
+  remove_all_blank_paragraphs: true
+  remove_blank_after_roles: [ "h1", "h2", "h3" ]
+
+# ── 语义角色专项样式 ────────────────────────────────────────
+
+abstract:
+  # 公文摘要/主送机关行：仿宋，四号，不缩进
+  font_size_pt: 14
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "justify"
+
+keyword:
+  # 关键词/主题词行
+  font_size_pt: 14
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "left"
+
+reference:
+  # 附件/来文引用
+  font_size_pt: 14
+  bold: false
+  italic: false
+  first_line_chars: 2
+  hanging_indent_pt: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "justify"
+
+footer:
+  # 印发机关与日期（公文版记）
+  font_size_pt: 14
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "left"
+
+list_item:
+  left_indent_pt: 28
+  hanging_indent_pt: 28
+  font_size_pt: 14
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "justify"
+  num_left_twips: 720
+  num_hanging_twips: 360
+  min_run_len: 1

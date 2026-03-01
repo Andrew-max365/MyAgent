@@ -1,0 +1,108 @@
+# specs/default.yaml
+fonts:
+  zh: "宋体"
+  en: "Times New Roman"
+
+body:
+  font_size_pt: 12          # 小四≈12pt（你也可以改成 10.5）
+  line_spacing: 1.5         # 倍数行距
+  space_before_pt: 0
+  space_after_pt: 0
+  first_line_chars: 2       # 首行缩进 2 字符（按字号换算）
+
+
+paragraph:
+  alignment: "justify"    # 中文文档默认两端对齐
+
+heading:
+  h1:
+    font_size_pt: 16
+    bold: true
+    space_before_pt: 12
+    space_after_pt: 6
+    alignment: "center"
+  h2:
+    font_size_pt: 14
+    bold: true
+    space_before_pt: 10
+    space_after_pt: 4
+    alignment: "left"
+  h3:
+    font_size_pt: 12
+    bold: true
+    space_before_pt: 8
+    space_after_pt: 2
+    alignment: "left"
+
+caption:
+  font_size_pt: 10.5
+  bold: false
+  space_before_pt: 3
+  space_after_pt: 3
+  center: true
+  alignment: "center"
+
+
+cleanup:
+  max_consecutive_blank_paragraphs: 0
+  remove_all_blank_paragraphs: true
+  remove_blank_after_roles: [ "h1", "h2", "h3", "caption" ]
+
+# ── 语义角色专项样式 ────────────────────────────────────────
+# 这些角色由 LLM/hybrid 模式识别后传入 formatter，不再压扁为 body。
+
+abstract:
+  font_size_pt: 10.5
+  bold: false
+  italic: true
+  first_line_chars: 2
+  space_before_pt: 6
+  space_after_pt: 6
+  alignment: "justify"
+
+keyword:
+  font_size_pt: 10.5
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 6
+  alignment: "left"
+
+reference:
+  font_size_pt: 10.5
+  bold: false
+  italic: false
+  first_line_chars: 0
+  hanging_indent_pt: 18
+  space_before_pt: 0
+  space_after_pt: 2
+  alignment: "left"
+
+footer:
+  font_size_pt: 9
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "center"
+
+list_item:
+  # 列表段落最终的段落格式（Pt）
+  left_indent_pt: 18
+  hanging_indent_pt: 18
+  font_size_pt: 12
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "left"
+  # 用于创建 numbering 定义的缩进（twips）
+  num_left_twips: 720
+  num_hanging_twips: 360
+  # 至少连续几条才认为是列表（避免误伤单独的"1."）
+  min_run_len: 1
+  # 将文本编号标记（（1）、①、1) 等）转换为 Word 真实列表（numPr）
+  convert_text_numbers: true

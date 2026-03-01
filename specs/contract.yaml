@@ -1,0 +1,106 @@
+# specs/contract.yaml — 中文合同/协议排版规范
+# 字体：正文宋体，小四（12pt）；条款标题黑体加粗
+
+fonts:
+  zh: "宋体"
+  en: "Times New Roman"
+
+body:
+  font_size_pt: 12          # 小四
+  line_spacing: 1.75
+  space_before_pt: 0
+  space_after_pt: 0
+  first_line_chars: 2
+
+paragraph:
+  alignment: "justify"
+
+heading:
+  h1:
+    font_size_pt: 16        # 合同主标题：三号黑体
+    bold: true
+    space_before_pt: 0
+    space_after_pt: 18
+    alignment: "center"
+  h2:
+    font_size_pt: 14        # 章标题：小三黑体
+    bold: true
+    space_before_pt: 12
+    space_after_pt: 6
+    alignment: "left"
+  h3:
+    font_size_pt: 12        # 条款标题：小四黑体
+    bold: true
+    space_before_pt: 6
+    space_after_pt: 3
+    alignment: "left"
+
+caption:
+  font_size_pt: 10.5
+  bold: false
+  space_before_pt: 3
+  space_after_pt: 3
+  center: true
+  alignment: "center"
+
+cleanup:
+  max_consecutive_blank_paragraphs: 0
+  remove_all_blank_paragraphs: true
+  remove_blank_after_roles: [ "h1", "h2", "h3" ]
+
+# ── 语义角色专项样式 ────────────────────────────────────────
+
+abstract:
+  # 合同摘要/当事方信息块
+  font_size_pt: 12
+  bold: false
+  italic: false
+  first_line_chars: 2
+  space_before_pt: 0
+  space_after_pt: 6
+  alignment: "justify"
+
+keyword:
+  # 合同要素/关键术语定义
+  font_size_pt: 12
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "left"
+
+reference:
+  # 附件/参照法规引用
+  font_size_pt: 12
+  bold: false
+  italic: false
+  first_line_chars: 0
+  hanging_indent_pt: 0
+  space_before_pt: 0
+  space_after_pt: 2
+  alignment: "left"
+
+footer:
+  # 签字盖章/落款区域
+  font_size_pt: 12
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "left"
+
+list_item:
+  left_indent_pt: 24
+  hanging_indent_pt: 24
+  font_size_pt: 12
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "justify"
+  num_left_twips: 720
+  num_hanging_twips: 360
+  min_run_len: 1

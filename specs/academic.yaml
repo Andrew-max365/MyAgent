@@ -1,0 +1,102 @@
+# specs/academic.yaml — 中文学术论文排版规范
+# 适用：期刊投稿、学位论文、学术报告等
+# 字体：正文宋体/Times New Roman，5号（10.5pt）
+
+fonts:
+  zh: "宋体"
+  en: "Times New Roman"
+
+body:
+  font_size_pt: 10.5        # 五号
+  line_spacing: 1.5
+  space_before_pt: 0
+  space_after_pt: 0
+  first_line_chars: 2
+
+paragraph:
+  alignment: "justify"
+
+heading:
+  h1:
+    font_size_pt: 16        # 小二，黑体
+    bold: true
+    space_before_pt: 18
+    space_after_pt: 9
+    alignment: "center"
+  h2:
+    font_size_pt: 14        # 三号，黑体
+    bold: true
+    space_before_pt: 12
+    space_after_pt: 6
+    alignment: "left"
+  h3:
+    font_size_pt: 12        # 小三，黑体
+    bold: true
+    space_before_pt: 9
+    space_after_pt: 4
+    alignment: "left"
+
+caption:
+  font_size_pt: 9           # 小五
+  bold: false
+  space_before_pt: 3
+  space_after_pt: 3
+  center: true
+  alignment: "center"
+
+cleanup:
+  max_consecutive_blank_paragraphs: 1
+  remove_blank_after_roles: [ "h1", "h2", "h3", "caption" ]
+
+# ── 语义角色专项样式 ────────────────────────────────────────
+
+abstract:
+  font_size_pt: 10.5
+  bold: false
+  italic: false
+  first_line_chars: 2
+  space_before_pt: 6
+  space_after_pt: 6
+  alignment: "justify"
+
+keyword:
+  font_size_pt: 10.5
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 6
+  alignment: "left"
+
+reference:
+  font_size_pt: 9           # 小五
+  bold: false
+  italic: false
+  first_line_chars: 0
+  hanging_indent_pt: 21     # GB/T 7714 悬挂缩进
+  space_before_pt: 0
+  space_after_pt: 3
+  alignment: "left"
+
+footer:
+  font_size_pt: 9
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "center"
+
+list_item:
+  left_indent_pt: 18
+  hanging_indent_pt: 18
+  font_size_pt: 10.5
+  bold: false
+  italic: false
+  first_line_chars: 0
+  space_before_pt: 0
+  space_after_pt: 0
+  alignment: "justify"
+  num_left_twips: 720
+  num_hanging_twips: 360
+  min_run_len: 1
