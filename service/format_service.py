@@ -110,9 +110,9 @@ def format_docx_file(
         report.setdefault("warnings", [])
         report["warnings"].append(w)
 
-    # 将 llm/hybrid 模式产出的语义审阅数据写入报告
-    if "_llm_review" in labels:
-        report["llm_review"] = labels["_llm_review"]
+    # 将 llm/hybrid 模式产出的校对数据写入报告
+    if "_llm_proofread" in labels:
+        report["llm_proofread"] = labels["_llm_proofread"]
     if "_hybrid_triggers" in labels:
         report["hybrid_triggers"] = labels["_hybrid_triggers"]
 

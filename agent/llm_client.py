@@ -20,8 +20,11 @@ from config import (
     LLM_RETRY_ATTEMPTS,
     LLM_RETRY_BACKOFF_S,
 )
-from agent.prompt_templates import SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT, build_user_prompt, build_review_prompt
-from agent.schema import DocumentStructure, DocumentReview, LLMSuggestion
+from agent.prompt_templates import (
+    SYSTEM_PROMPT, REVIEW_SYSTEM_PROMPT, build_user_prompt, build_review_prompt,
+    PROOFREAD_SYSTEM_PROMPT, build_proofread_prompt,
+)
+from agent.schema import DocumentStructure, DocumentReview, LLMSuggestion, DocumentProofread, ProofreadIssue
 
 ALLOWED_PARAGRAPH_TYPES = {
     "title_1",
@@ -243,6 +246,71 @@ class LLMClient:
             raise LLMCallError(f"LLM 审阅响应结构校验失败: {e}", error_type="format_error") from e
         except Exception as e:
             raise LLMCallError(f"LLM 审阅调用失败: {e}", error_type="unknown") from e
+
+    def call_proofread(
+        self,
+        paragraphs: List[str],
+        paragraph_indices: Optional[List[int]] = None,
+    ) -> "DocumentProofread":
+        """
+        调用大模型进行校对，返回 DocumentProofread（含错别字/标点/规范性问题列表）。
+
+        :param paragraphs: 文档全部段落文本列表
+        :param paragraph_indices: 仅校对这些序号的段落（hybrid 模式）；None 表示全量（llm 模式）
+        :return: DocumentProofread 实例
+        :raises LLMCallError: 调用失败或解析失败时抛出
+        """
+        try:
+            user_prompt = build_proofread_prompt(paragraphs, paragraph_indices)
+            messages = [
+                {"role": "system", "content": PROOFREAD_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ]
+            n = len(paragraph_indices) if paragraph_indices is not None else len(paragraphs)
+            raw = self._execute_chat_completion(
+                messages, timeout=compute_dynamic_timeout(n)
+            )
+            data = json.loads(self._normalize_json_text(raw))
+            data = self._canonicalize_proofread_payload(data)
+            return DocumentProofread(**data)
+        except LLMCallError:
+            raise
+        except json.JSONDecodeError as e:
+            raise LLMCallError(f"LLM 校对响应 JSON 解析失败: {e}", error_type="format_error") from e
+        except pydantic.ValidationError as e:
+            raise LLMCallError(f"LLM 校对响应结构校验失败: {e}", error_type="format_error") from e
+        except Exception as e:
+            raise LLMCallError(f"LLM 校对调用失败: {e}", error_type="unknown") from e
+
+    @classmethod
+    def _canonicalize_proofread_issue(cls, item: Any) -> Any:
+        """规范化单条校对问题字段。"""
+        if not isinstance(item, dict):
+            return item
+        s = dict(item)
+        valid_types = {"typo", "punctuation", "standardization"}
+        if s.get("issue_type") not in valid_types:
+            s["issue_type"] = "standardization"
+        valid_severities = {"low", "medium", "high"}
+        if s.get("severity") not in valid_severities:
+            s["severity"] = "low"
+        s.setdefault("evidence", "")
+        s.setdefault("suggestion", "")
+        s.setdefault("rationale", "")
+        return s
+
+    @classmethod
+    def _canonicalize_proofread_payload(cls, data: Any) -> Any:
+        """规范化 DocumentProofread payload。"""
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        issues = payload.get("issues")
+        if isinstance(issues, list):
+            payload["issues"] = [cls._canonicalize_proofread_issue(i) for i in issues]
+        else:
+            payload["issues"] = []
+        return payload
 
     @classmethod
     def _canonicalize_suggestion(cls, item: Any) -> Any:

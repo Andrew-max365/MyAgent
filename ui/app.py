@@ -156,6 +156,26 @@ with right:
         st.info("无警告。")
 
 # -------------------------
+# LLM 校对结果（如有）
+# -------------------------
+llm_proofread = report.get("llm_proofread") or {}
+proofread_issues = llm_proofread.get("issues") or []
+if proofread_issues:
+    st.markdown("---")
+    st.markdown("## 🔍 LLM 校对结果（请提交者自行修改）")
+    severity_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+    type_label = {"typo": "错别字", "punctuation": "标点符号", "standardization": "规范性"}
+    for issue in proofread_issues:
+        icon = severity_icon.get(issue.get("severity", "low"), "⚪")
+        itype = type_label.get(issue.get("issue_type", ""), issue.get("issue_type", ""))
+        para_info = f"（段落 {issue['paragraph_index']}）" if issue.get("paragraph_index") is not None else ""
+        st.markdown(
+            f"{icon} **{itype}**{para_info}：`{issue.get('evidence', '')}` → {issue.get('suggestion', '')}  \n"
+            f"<small>{issue.get('rationale', '')}</small>",
+            unsafe_allow_html=True,
+        )
+
+# -------------------------
 # 底部：下载与原始 report
 # -------------------------
 st.markdown("---")

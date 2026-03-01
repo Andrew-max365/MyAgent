@@ -7,10 +7,7 @@ from typing import Dict, List, Optional, Set
 from config import LLM_MODE
 from agent.doc_analyzer import DocAnalyzer
 from agent.llm_client import LLMCallError
-from agent.schema import DocumentStructure, DocumentReview
-
-# hybrid 模式下的置信度阈值：低于此值的段落回退到规则
-HYBRID_CONFIDENCE_THRESHOLD = 0.7
+from agent.schema import DocumentProofread
 
 # hybrid 触发条件阈值
 # 规则标为 unknown 的段落数阈值（≥1 即触发）
@@ -21,44 +18,6 @@ HYBRID_TRIGGER_HEADING_LEN = 30
 HYBRID_TRIGGER_CONSECUTIVE_BODY_MIN = 3
 # 连续 body 段落中认定为"短"的字符数上限
 HYBRID_TRIGGER_SHORT_BODY_CHARS = 60
-
-
-LLM_TO_INTERNAL_ROLE = {
-    "title_1": "h1",
-    "title_2": "h2",
-    "title_3": "h3",
-    "body": "body",
-    "list_item": "list_item",
-    "table_caption": "caption",
-    "figure_caption": "caption",
-    "abstract": "abstract",
-    "keyword": "keyword",
-    "reference": "reference",
-    "footer": "footer",
-    "unknown": "unknown",
-}
-
-
-def _normalize_role(role: str) -> str:
-    """将 LLM schema 标签统一映射为 formatter 可识别标签。"""
-    return LLM_TO_INTERNAL_ROLE.get(role, "unknown")
-
-
-def _structure_to_labels(structure: DocumentStructure) -> Dict[int, str]:
-    """将 DocumentStructure 转换为 {paragraph_index: internal_role} 字典。
-
-    ``internal_role`` 是 formatter 可识别的角色字符串（h1/h2/h3/body/list_item 等），
-    由 :func:`_normalize_role` 从 LLM schema 类型映射而来。
-    """
-    return {p.index: _normalize_role(p.paragraph_type) for p in structure.paragraphs}
-
-
-def _structure_low_confidence(structure: DocumentStructure) -> list:
-    """返回置信度低于阈值的段落索引列表"""
-    return [
-        p.index for p in structure.paragraphs
-        if p.confidence < HYBRID_CONFIDENCE_THRESHOLD
-    ]
 
 
 def _compute_hybrid_triggers(blocks, rule_labels: Dict) -> Dict:
@@ -153,13 +112,14 @@ class ModeRouter:
 
     模式职责边界
     ============
-    rule：仅执行确定性规则，不调用 LLM，标签来源为 rule_based_labels。
+    rule：仅执行确定性规则完成排版，不调用 LLM。
 
-    llm：以 LLM 为主进行全量语义审阅（结构标注 + 建议），规则仅用于未覆盖段落的兜底。
-         输出包含 _llm_review 键，携带 DocumentReview（suggestions 含可执行建议）。
+    llm：规则负责全部排版，LLM 仅对整篇文档做校对（错别字/标点/规范性），
+         输出校对问题列表供提交者自行修改（不自动应用）。
+         输出包含 _llm_proofread 键，携带 DocumentProofread（issues 校对问题列表）。
 
-    hybrid：先运行规则层，仅当触发条件命中时调用 LLM，LLM 只处理触发段落（≤20%
-            高价值任务）。输出包含 _hybrid_triggers 键（触发原因/指标）和 _llm_review
+    hybrid：先运行规则层排版，仅当触发条件命中时调用 LLM 对触发段落做校对。
+            输出包含 _hybrid_triggers 键（触发原因/指标）和 _llm_proofread
             键（若触发了 LLM）。若无触发，完全等同于规则模式，不会调用 LLM。
     """
 
@@ -200,44 +160,39 @@ class ModeRouter:
 
     def _llm(self, doc, blocks, rule_labels: Dict) -> Dict:
         """
-        纯 LLM 模式：LLM 为主进行全量语义审阅（结构标注 + 建议），规则用于兜底。
+        LLM 模式：规则负责全部排版，LLM 仅对整篇文档做校对。
 
-        与 hybrid 模式的区别：
-        - 无触发门控，始终全量调用 LLM
-        - 产出包含完整的 suggestions 建议列表
-        - 所有段落标签均优先采用 LLM 结果
+        校对结果（错别字/标点/规范性问题）写入 _llm_proofread，
+        供提交者自行修改，不自动应用。
         """
-        review: DocumentReview = self.analyzer.client.call_review(
+        # 排版标签完全来自规则
+        result = dict(rule_labels)
+        result["_source"] = "llm"
+
+        # LLM 仅做校对，不做结构标注
+        proofread: DocumentProofread = self.analyzer.client.call_proofread(
             paragraphs=self._extract_paragraphs(doc),
-            triggered_indices=None,  # 全量审阅
-            rule_labels=None,
         )
-        labels = self._map_review_to_block_ids(review, blocks, rule_labels)
-        labels["_source"] = "llm"
-        # 将 DocumentReview 序列化后存入结果，供上层提取到报告中
-        labels["_llm_review"] = {
-            "suggestions": [s.model_dump() for s in review.suggestions],
-            "auto_applied": [],    # llm 模式下建议均未自动应用（仅标注，由 formatter 处理）
-            "manual_pending": [
-                s.model_dump() for s in review.suggestions if s.apply_mode == "manual"
-            ],
+        result["_llm_proofread"] = {
+            "issues": [issue.model_dump() for issue in proofread.issues],
         }
-        return labels
+        return result
 
     def _hybrid(self, doc, blocks, rule_labels: Dict) -> Dict:
         """
-        混合模式：先运行规则层，仅当触发条件命中时调用 LLM。
+        混合模式：规则负责全部排版，仅当触发条件命中时 LLM 对触发段落做校对。
 
         执行流程：
-        1. 使用规则标签作为基准
+        1. 使用规则标签作为排版基准（不依赖 LLM 的结构判断）
         2. 评估触发条件（unknown/标题歧义/潜在列表）
-        3. 仅在触发时调用 LLM，仅审阅触发段落（≤20% 高价值任务）
-        4. 合并：触发段落用 LLM 结果（置信度 < 阈值则回退规则），其余保留规则
+        3. 仅在触发时调用 LLM，仅校对触发段落（≤20% 高价值任务）
+        4. 校对结果写入 _llm_proofread，供提交者自行修改，不自动应用
         5. 在 _hybrid_triggers 中记录触发原因与指标
         """
         # 步骤 1: 计算触发条件
         trigger_info = _compute_hybrid_triggers(blocks, rule_labels)
 
+        # 排版标签完全来自规则
         result: Dict = {}
         for b in blocks:
             result[b.block_id] = rule_labels.get(b.block_id, "body")
@@ -256,24 +211,18 @@ class ModeRouter:
             result["_hybrid_triggers"]["llm_called"] = False
             return result
 
-        # 步骤 2: 调用 LLM（仅针对触发段落）
+        # 步骤 2: 调用 LLM 对触发段落做校对
         all_paragraphs = self._extract_paragraphs(doc)
-        # 构建 paragraph_index -> rule_role 映射供 LLM 参考
-        para_idx_to_rule: Dict[int, str] = {}
-        for b in blocks:
-            para_idx_to_rule[b.paragraph_index] = rule_labels.get(b.block_id, "body")
-
         try:
-            review: DocumentReview = self.analyzer.client.call_review(
+            proofread: DocumentProofread = self.analyzer.client.call_proofread(
                 paragraphs=all_paragraphs,
-                triggered_indices=sorted(trigger_info["triggered_indices"]),
-                rule_labels=para_idx_to_rule,
+                paragraph_indices=sorted(trigger_info["triggered_indices"]),
             )
         except LLMCallError as e:
             # LLM 已尝试调用但失败，保留规则结果并记录警告
             result.setdefault("_warnings", [])
             result["_warnings"].append(
-                f"hybrid 模式 LLM 审阅失败，已保留规则结果: {e}"
+                f"hybrid 模式 LLM 校对失败，已保留规则结果: {e}"
             )
             result["_hybrid_triggers"]["llm_called"] = True
             result["_hybrid_triggers"]["llm_error"] = str(e)
@@ -281,34 +230,9 @@ class ModeRouter:
 
         result["_hybrid_triggers"]["llm_called"] = True
 
-        # 步骤 3: 合并 LLM 与规则标签（仅触发段落使用 LLM 结果）
-        llm_para_labels: Dict[int, str] = _structure_to_labels(review)
-        low_conf_indices = set(_structure_low_confidence(review))
-
-        for b in blocks:
-            if b.paragraph_index not in trigger_info["triggered_indices"]:
-                # 非触发段落：保留规则结果
-                continue
-            if b.paragraph_index in low_conf_indices:
-                # LLM 置信度低：回退规则
-                pass  # 已在上方用规则初始化
-            elif b.paragraph_index in llm_para_labels:
-                result[b.block_id] = llm_para_labels[b.paragraph_index]
-
-        if low_conf_indices:
-            result.setdefault("_warnings", [])
-            result["_warnings"].append(
-                f"hybrid 模式：{len(low_conf_indices)} 个触发段落 LLM 置信度 < "
-                f"{HYBRID_CONFIDENCE_THRESHOLD}，已回退规则标签"
-            )
-
-        # 步骤 4: 记录 LLM 建议
-        result["_llm_review"] = {
-            "suggestions": [s.model_dump() for s in review.suggestions],
-            "auto_applied": [],
-            "manual_pending": [
-                s.model_dump() for s in review.suggestions if s.apply_mode == "manual"
-            ],
+        # 步骤 3: 记录校对结果（供提交者自行修改）
+        result["_llm_proofread"] = {
+            "issues": [issue.model_dump() for issue in proofread.issues],
         }
 
         return result
@@ -318,38 +242,3 @@ class ModeRouter:
         """从 doc 提取所有段落文本（含表格段落），保持索引一致。"""
         from core.docx_utils import iter_all_paragraphs
         return [p.text for p in iter_all_paragraphs(doc)]
-
-    def _map_review_to_block_ids(
-        self,
-        review: DocumentReview,
-        blocks,
-        rule_labels: Dict,
-    ) -> Dict:
-        """将 DocumentReview（按 paragraph_index 索引）映射到 block_id 索引。"""
-        llm_para_labels = _structure_to_labels(review)
-        result: Dict = {}
-        for b in blocks:
-            if b.paragraph_index in llm_para_labels:
-                result[b.block_id] = llm_para_labels[b.paragraph_index]
-            else:
-                result[b.block_id] = rule_labels.get(b.block_id, "body")
-        return result
-
-    def _map_to_block_ids(
-        self,
-        structure: DocumentStructure,
-        blocks,
-        rule_labels: Dict,
-    ) -> Dict:
-        """
-        将 DocumentStructure（按 paragraph_index 索引）映射到 block_id 索引。
-        未覆盖的段落用规则标签补全。
-        """
-        llm_para_labels = _structure_to_labels(structure)
-        result: Dict = {}
-        for b in blocks:
-            if b.paragraph_index in llm_para_labels:
-                result[b.block_id] = llm_para_labels[b.paragraph_index]
-            else:
-                result[b.block_id] = rule_labels.get(b.block_id, "body")
-        return result
