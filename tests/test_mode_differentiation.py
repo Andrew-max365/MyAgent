@@ -505,6 +505,20 @@ class TestProofreadSchema:
 # ---------------------------------------------------------------------------
 
 class TestLLMClientCanonicalizeProofread:
+    def test_normalize_json_text_accepts_plain_json(self):
+        from agent.llm_client import LLMClient
+        raw = '{"doc_language":"zh","total_paragraphs":0,"paragraphs":[]}'
+        assert LLMClient._normalize_json_text(raw) == raw
+
+    def test_normalize_json_text_strips_markdown_json_fence(self):
+        from agent.llm_client import LLMClient
+        raw = """```json
+{"doc_language":"zh","total_paragraphs":0,"paragraphs":[]}
+```"""
+        assert LLMClient._normalize_json_text(raw) == (
+            '{"doc_language":"zh","total_paragraphs":0,"paragraphs":[]}'
+        )
+
     def test_canonicalize_proofread_issue_normalizes_fields(self):
         from agent.llm_client import LLMClient
         raw = {

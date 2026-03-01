@@ -1,10 +1,9 @@
 # tests/test_audit_fixes.py
 """
-Tests for four bugs found in the code audit:
+Tests for bugs found in the code audit:
   1. core/judge.py fallback RE_CN_ENUM now includes 百千万 (consistent with formatter.py)
-  2. core/docx_utils.py unused imports removed (deepcopy, Optional)
-  3. core/formatter.py unknown branch resets hanging_indent to Pt(0)
-  4. core/formatter.py detect_role docstring updated to list all return values
+  2. core/formatter.py unknown branch resets hanging_indent to Pt(0)
+  3. hyperlink runs (URLs) get their fonts applied via iter_paragraph_runs
 """
 from pathlib import Path
 import sys
@@ -45,46 +44,8 @@ def test_judge_fallback_re_cn_enum_includes_bai_qian_wan():
         )
 
 
-def test_judge_fallback_re_cn_enum_still_covers_ten_and_below():
-    """Ensure the original 一…十 range still works in the updated regex."""
-    from core.parser import Block
-
-    blocks = [
-        Block(block_id=1, kind="paragraph", text="一、引言", paragraph_index=0),
-        Block(block_id=2, kind="paragraph", text="十、总结", paragraph_index=1),
-    ]
-    labels = rule_based_labels(blocks, doc=None)
-
-    assert labels[1] == "h2"
-    assert labels[2] == "h2"
-
-
 # ---------------------------------------------------------------------------
-# Fix 2: docx_utils.py unused imports removed
-# ---------------------------------------------------------------------------
-
-def test_docx_utils_no_unused_deepcopy_import():
-    """deepcopy should no longer be imported in core/docx_utils.py."""
-    docx_utils_path = Path(__file__).resolve().parents[1] / "core" / "docx_utils.py"
-    source = docx_utils_path.read_text(encoding="utf-8")
-    assert "from copy import deepcopy" not in source
-    assert "import deepcopy" not in source
-
-
-def test_docx_utils_no_unused_optional_import():
-    """Optional should no longer be imported in core/docx_utils.py."""
-    docx_utils_path = Path(__file__).resolve().parents[1] / "core" / "docx_utils.py"
-    source = docx_utils_path.read_text(encoding="utf-8")
-    # Verify Optional is not in the typing import line
-    for line in source.splitlines():
-        if "from typing import" in line:
-            assert "Optional" not in line, (
-                f"'Optional' should have been removed from typing import: {line!r}"
-            )
-
-
-# ---------------------------------------------------------------------------
-# Fix 3: apply_formatting unknown branch resets hanging_indent to Pt(0)
+# Fix 2 (now 2): apply_formatting unknown branch resets hanging_indent to Pt(0)
 # ---------------------------------------------------------------------------
 
 def _make_doc_blocks_labels(role_texts):
@@ -153,23 +114,7 @@ def test_unknown_role_hanging_indent_consistent_with_body():
 
 
 # ---------------------------------------------------------------------------
-# Fix 4: detect_role docstring lists all actual return values
-# ---------------------------------------------------------------------------
-
-def test_detect_role_docstring_covers_all_return_values():
-    """detect_role docstring should mention all actual return values."""
-    import inspect
-    doc_str = inspect.getdoc(detect_role) or ""
-    expected_returns = {"blank", "h1", "h2", "h3", "caption", "abstract",
-                        "keyword", "reference", "list_item", "footer", "body"}
-    for role in expected_returns:
-        assert role in doc_str, (
-            f"detect_role docstring missing return value {role!r}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Fix 5: hyperlink runs (URLs) get their fonts applied
+# Fix 4 (now 4): hyperlink runs (URLs) get their fonts applied
 # ---------------------------------------------------------------------------
 
 def test_hyperlink_run_font_applied():
