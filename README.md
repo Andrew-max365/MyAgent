@@ -95,7 +95,11 @@
 export LLM_API_KEY="your-api-key"
 export LLM_BASE_URL="https://your-llm-endpoint/v1"
 export LLM_MODEL="gpt-4o"         # 或任意兼容模型名
-export LLM_TIMEOUT_S="60"
+export LLM_TIMEOUT_S="60"         # 读取超时基础值（秒）
+export LLM_CONNECT_TIMEOUT_S="10" # TCP 连接超时（秒）
+export LLM_MAX_TIMEOUT_S="120"    # 动态超时上限（秒）
+export LLM_RETRY_ATTEMPTS="3"     # 超时/网络错误最大重试次数
+export LLM_RETRY_BACKOFF_S="1"    # 重试指数退避基础等待时间（秒）
 export LLM_MODE="hybrid"          # rule | llm | hybrid
 ```
 
@@ -104,8 +108,17 @@ export LLM_MODE="hybrid"          # rule | llm | hybrid
 | `LLM_API_KEY` | 大模型 API 密钥 | `""` |
 | `LLM_BASE_URL` | API 基础 URL | `"https://api.openai.com/v1"` |
 | `LLM_MODEL` | 使用的模型名称 | `"gpt-4o"` |
-| `LLM_TIMEOUT_S` | 请求超时秒数 | `60` |
+| `LLM_TIMEOUT_S` | 读取超时基础值（秒），动态超时以此为下限 | `60` |
+| `LLM_CONNECT_TIMEOUT_S` | TCP 连接超时（秒），建立连接失败时更快失效 | `10` |
+| `LLM_MAX_TIMEOUT_S` | 动态超时上限（秒），防止段落数过多时超时过长 | `120` |
+| `LLM_RETRY_ATTEMPTS` | 超时/网络错误最大重试次数（含首次，≥1） | `3` |
+| `LLM_RETRY_BACKOFF_S` | 重试指数退避基础等待秒数（实际等待 = base × 2ⁿ⁻¹） | `1` |
 | `LLM_MODE` | 排版模式 `rule/llm/hybrid` | `"hybrid"` |
+
+> **动态超时说明**：实际读取超时 = `LLM_TIMEOUT_S + 段落数 × 0.5`（秒），上限为 `LLM_MAX_TIMEOUT_S`。
+> 文档越大，允许的读取时间越长，有效避免大文档超时。
+> 若调用失败为超时或网络错误，系统会自动重试（最多 `LLM_RETRY_ATTEMPTS` 次，指数退避），
+> 全部重试失败后仍会回退到规则排版，不影响输出结果。
 
 ### 架构说明
 
@@ -237,7 +250,9 @@ python format_docx.py input.docx output.docx --label-mode hybrid
 - 基于 `openai` SDK，兼容所有 OpenAI 接口规范的模型（含国产模型）
 - `call_structured(paragraphs)`：结构标注（返回 `DocumentStructure`）
 - `call_review(paragraphs, triggered_indices, rule_labels)`：语义审阅（返回 `DocumentReview`，含建议）
-- 支持超时控制（`LLM_TIMEOUT_S`）
+- 支持超时控制：独立连接超时（`LLM_CONNECT_TIMEOUT_S`）与动态读取超时（随段落数自适应，上限 `LLM_MAX_TIMEOUT_S`）
+- 自动重试（`LLM_RETRY_ATTEMPTS` 次，指数退避）：仅对超时/网络错误重试，鉴权失败立即抛出
+- 详细错误类型分类：`connect_timeout` / `read_timeout` / `connect_error` / `auth` / `format_error`
 - 统一异常处理，失败时抛出 `LLMCallError`
 
 ### `agent/prompt_templates.py`
