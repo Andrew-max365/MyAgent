@@ -8,6 +8,7 @@ dist/
 build/
 .eggs/
 .env
+key.env
 .venv
 venv/
 *.egg

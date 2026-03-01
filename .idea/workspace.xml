@@ -5,14 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2454bc74-db32-4487-b43f-26d4a5308b44" name="更改" comment="MyAgent">
-      <change afterPath="$PROJECT_DIR$/agent/Structura_agent.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/agent/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/service/format_service.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/ui/app.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/MyAgent.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/MyAgent.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/format_docx.py" beforeDir="false" afterPath="$PROJECT_DIR$/format_docx.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/samples/output.docx" beforeDir="false" afterPath="$PROJECT_DIR$/tests/samples/output.docx" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/samples/test_out.docx" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -45,20 +43,20 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Python.formatter.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "git-widget-placeholder": "2.1",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.formatter.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\糊涂涂\PycharmProjects\MyAgent\tests\samples" />
@@ -85,6 +83,12 @@
       <workItem from="1771849324737" duration="4876000" />
       <workItem from="1771854772465" duration="68000" />
       <workItem from="1771900597577" duration="4947000" />
+      <workItem from="1772331410368" duration="241000" />
+      <workItem from="1772331733410" duration="45000" />
+      <workItem from="1772332474427" duration="658000" />
+      <workItem from="1772333760678" duration="178000" />
+      <workItem from="1772335156908" duration="165000" />
+      <workItem from="1772346225719" duration="45000" />
     </task>
     <task id="LOCAL-00001" summary="MyAgent">
       <option name="closed" value="true" />

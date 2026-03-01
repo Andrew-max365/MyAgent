@@ -42,3 +42,44 @@ class DocumentStructure(BaseModel):
     total_paragraphs: int
     # 各段落的标签列表
     paragraphs: List[ParagraphTag]
+
+
+# ---------------------------------------------------------------------------
+# 语义建议（LLM 语义审阅输出）
+# ---------------------------------------------------------------------------
+
+class LLMSuggestion(BaseModel):
+    """单条语义建议，由 LLM Reviewer 产出"""
+
+    # 建议类别：标题层级 / 歧义风险 / 结构改写 / 文体风格 / 术语一致
+    category: Literal["hierarchy", "ambiguity", "structure", "style", "terminology"]
+    # 严重程度
+    severity: Literal["low", "medium", "high"]
+    # 建议置信度 0.0~1.0
+    confidence: float
+    # 原文片段或定位信息（"段落 N: <片段>"）
+    evidence: str
+    # 建议内容（具体可执行的修改建议）
+    suggestion: str
+    # 建议原因（为什么提出这条建议）
+    rationale: str
+    # 应用方式：auto（可自动应用）/ manual（需人工确认，默认）
+    apply_mode: Literal["auto", "manual"] = "manual"
+    # 关联段落索引（可选）
+    paragraph_index: Optional[int] = None
+
+
+class DocumentReview(BaseModel):
+    """文档语义审阅结果（含结构标签 + 可执行建议列表）
+
+    llm 模式：全量结构标签 + 全文建议
+    hybrid 模式（触发时）：仅触发段落的标签建议
+    """
+
+    doc_language: str = "zh"
+    # 本次审阅覆盖的段落数（llm 为总段落数，hybrid 为触发段落数）
+    total_paragraphs: int
+    # 各段落的结构标签
+    paragraphs: List[ParagraphTag]
+    # 语义建议列表（区分"已自动应用"与"仅建议未应用"由 apply_mode 标识）
+    suggestions: List[LLMSuggestion] = []

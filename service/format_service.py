@@ -56,15 +56,18 @@ def _resolve_labels(blocks, doc, label_mode: str) -> Dict[Any, str]:
         router = ModeRouter(mode=mode)
         return router.route(doc, blocks, rule)
     except Exception as e:
+        n_blocks = len(blocks)
+        error_type = getattr(e, "error_type", "unknown")
         warnings.warn(
-            f"[format_service] LLM labeling failed, falling back to rule-based: {e}",
+            f"[format_service] LLM labeling failed ({mode} mode, {n_blocks} blocks, "
+            f"error_type={error_type}), falling back to rule-based: {e}",
             stacklevel=2,
         )
         # 兜底：LLM 不可用时回退，保证主流程可用
         rule.setdefault("_warnings", [])
-        error_type = getattr(e, "error_type", "unknown")
         rule["_warnings"].append(
-            f"LLM labeling failed [{error_type}], fallback to rule-based: {e}"
+            f"LLM labeling failed [{error_type}] ({mode} mode, {n_blocks} blocks), "
+            f"fallback to rule-based: {e}"
         )
         return rule
 
@@ -106,6 +109,12 @@ def format_docx_file(
     for w in labels.get("_warnings", []):
         report.setdefault("warnings", [])
         report["warnings"].append(w)
+
+    # 将 llm/hybrid 模式产出的语义审阅数据写入报告
+    if "_llm_review" in labels:
+        report["llm_review"] = labels["_llm_review"]
+    if "_hybrid_triggers" in labels:
+        report["hybrid_triggers"] = labels["_hybrid_triggers"]
 
     save_docx(doc, output_path)
 
