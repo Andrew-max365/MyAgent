@@ -1583,3 +1583,113 @@ def test_multiline_non_list_mismatch_still_reported():
     assert consistency["mismatched"] == 1, (
         "Single-line body/h1 divergence must still be reported as a mismatch"
     )
+
+
+# ─── 首行缩进：preamble lines inside a split list_item block ────────────────
+
+def test_preamble_line_of_split_list_item_gets_first_line_indent():
+    """
+    When a multi-line block labeled 'list_item' by LLM is split, the first
+    fragment may be a preamble sentence (e.g. "以下是方向：") with no list
+    prefix.  That fragment should receive body首行缩进 (positive
+    first_line_indent) rather than a hanging indent, because step 5 won't
+    add a numPr to it and hanging indent without numPr looks wrong.
+
+    Numbered fragments (e.g. "1. 保研...") must still get list_item
+    formatting (hanging indent + numPr).
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    body_size = float(spec.raw["body"]["font_size_pt"])
+    first_line_chars = int(spec.raw["body"]["first_line_chars"])
+    expected_fli = first_line_chars * body_size   # positive pt value for body
+    hanging_pt = float(spec.raw["list_item"]["hanging_indent_pt"])
+
+    # Simulate: LLM labels the whole multi-line block as list_item.
+    # After step-3 split the first line has no list marker.
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("list_item", "结合信息安全专业背景，我初步考虑以下几个方向：\n1. 保研或考研。\n2. 就业方向。"),
+    ])
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    paras = [p for p in iter_all_paragraphs(doc) if not is_effectively_blank_paragraph(p)]
+    assert len(paras) == 3, f"Expected 3 paragraphs after split, got {len(paras)}: {[p.text for p in paras]}"
+
+    preamble = paras[0]
+    list_items = paras[1:]
+
+    # Preamble must NOT be a numPr paragraph, and must have positive首行缩进.
+    assert not _is_list_p(preamble), "Preamble paragraph must not have numPr"
+    fli = preamble.paragraph_format.first_line_indent
+    assert fli is not None and float(fli) > 0, (
+        f"Preamble首行缩进 must be positive (body indent), got {fli}"
+    )
+    assert float(fli) == pytest.approx(Pt(expected_fli), rel=0.05), (
+        f"Preamble首行缩进 must be ≈{expected_fli}pt (body first_line_chars), got {fli}"
+    )
+
+    # Numbered items must be numPr paragraphs with hanging indent.
+    for p in list_items:
+        assert _is_list_p(p), f"List item must have numPr: {p.text!r}"
+        item_fli = p.paragraph_format.first_line_indent
+        assert item_fli is not None and float(item_fli) <= 0, (
+            f"List item must have hanging (≤0) first_line_indent, got {item_fli}"
+        )
+        assert float(p.paragraph_format.left_indent) == pytest.approx(Pt(hanging_pt), rel=0.01), (
+            f"List item left_indent must equal hanging_indent_pt={hanging_pt}pt"
+        )
+
+
+def test_header_label_line_of_split_list_item_gets_first_line_indent():
+    """
+    When a multi-line block labeled 'list_item' starts with a bracket header
+    like '【大二下学期】' (no list prefix), that header line must get body
+    首行缩进 (not a hanging indent) after the split and formatting.
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+    body_size = float(spec.raw["body"]["font_size_pt"])
+    first_line_chars = int(spec.raw["body"]["first_line_chars"])
+    expected_fli = first_line_chars * body_size
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("list_item", "【大二下学期】\n1. 巩固数据结构。\n2. 深入学习Linux。"),
+    ])
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    paras = [p for p in iter_all_paragraphs(doc) if not is_effectively_blank_paragraph(p)]
+    assert len(paras) == 3
+
+    header_line = paras[0]
+    assert not _is_list_p(header_line), "Header line must not have numPr"
+    fli = header_line.paragraph_format.first_line_indent
+    assert fli is not None and float(fli) > 0, (
+        f"Header line首行缩进 must be positive, got {fli}"
+    )
+
+    for p in paras[1:]:
+        assert _is_list_p(p), f"Numbered items must have numPr: {p.text!r}"
+
+
+def test_all_lines_have_prefix_no_preamble_downgrade():
+    """
+    When ALL split lines have a list prefix (e.g. "1. ...\n2. ...\n3. ..."),
+    none should be downgraded to body — all must stay as list_item and get numPr.
+    """
+    spec = load_spec(str(SPECS_DIR / "default.yaml"))
+
+    doc, blocks, labels = _make_doc_blocks_labels([
+        ("list_item", "1. 数学成绩优秀。\n2. 编程能力增强。\n3. 逻辑推理提升。"),
+    ])
+
+    apply_formatting(doc, blocks, labels, spec)
+
+    paras = [p for p in iter_all_paragraphs(doc) if not is_effectively_blank_paragraph(p)]
+    assert len(paras) == 3, f"Expected 3 paragraphs, got {len(paras)}"
+
+    for p in paras:
+        assert _is_list_p(p), f"All split list_item paragraphs must have numPr: {p.text!r}"
+        fli = p.paragraph_format.first_line_indent
+        assert fli is None or float(fli) <= 0, (
+            f"All list_item paragraphs must have hanging indent (≤0), got {fli}"
+        )

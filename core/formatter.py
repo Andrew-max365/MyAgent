@@ -607,10 +607,40 @@ def apply_formatting(doc, blocks: List[Block], labels: Dict[int, str], spec: Spe
         split_estimated_new += (len(lines) - 1)
 
     new_paras_from_split: List[Paragraph] = []
+    # Cache original labels before any mutations in _inherit_label so that
+    # siblings processed after the first child still see the pre-mutation value.
+    _orig_split_labels: Dict = {}
+
     def _inherit_label(parent_p, child_p):
         # 让拆分出来的新段落继承原段落的标签（避免 fallback 造成标签不一致）
-        if parent_p._p in label_by_elem and child_p._p not in label_by_elem:
-            label_by_elem[child_p._p] = label_by_elem[parent_p._p]
+        if parent_p._p not in label_by_elem:
+            new_paras_from_split.append(child_p)
+            return
+
+        # Cache the original label on first encounter (before any mutations).
+        if parent_p._p not in _orig_split_labels:
+            _orig_split_labels[parent_p._p] = label_by_elem[parent_p._p]
+        orig_label = _orig_split_labels[parent_p._p]
+
+        # When a list_item multi-line block is split, some fragments (e.g. a
+        # preamble sentence like "以下方向：" or a header like "【大二下学期】")
+        # have no recognisable list prefix and will NOT be converted to numPr by
+        # step 5.  Stamping them as list_item would give them a hanging indent
+        # without a numPr marker, which produces wrong首行缩进 rendering.  Treat
+        # such fragments as body so they receive the normal首行缩进 instead.
+        def _effective_label(p):
+            if (orig_label == "list_item"
+                    and detect_text_list_prefix(p.text or "") is None
+                    and not is_list_paragraph(p)):
+                return "body"
+            return orig_label
+
+        # Update parent label if its text (first split line) has no list prefix.
+        label_by_elem[parent_p._p] = _effective_label(parent_p)
+
+        if child_p._p not in label_by_elem:
+            label_by_elem[child_p._p] = _effective_label(child_p)
+
         new_paras_from_split.append(child_p)
 
     created_by_split = _split_body_paragraphs_on_linebreaks(doc, role_getter=get_role, on_new_paragraph=_inherit_label)
