@@ -91,11 +91,11 @@ footer:
 list_item:
   # 列表段落最终的段落格式（Pt）
   left_indent_pt: 18
-  hanging_indent_pt: 18
+  hanging_indent_pt: 0
   font_size_pt: 12
   bold: false
   italic: false
-  first_line_chars: 0
+  first_line_chars: 2
   space_before_pt: 0
   space_after_pt: 0
   alignment: "left"

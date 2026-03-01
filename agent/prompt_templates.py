@@ -1,6 +1,6 @@
 # agent/prompt_templates.py
 # Prompt 模板管理：系统 Prompt 和用户 Prompt 模板
-from typing import List
+from typing import Dict, List, Optional
 
 # 系统 Prompt：告知模型角色与输出格式要求
 SYSTEM_PROMPT = (
@@ -39,6 +39,88 @@ SYSTEM_PROMPT = (
     "confidence 为 0.0~1.0 之间的浮点数，表示分类的置信度。\n"
     "对于模糊段落，请在 reasoning 字段中说明判断依据。"
 )
+
+
+# ---------------------------------------------------------------------------
+# 语义审阅 Prompt（llm 模式全量审阅 / hybrid 模式针对触发段落审阅）
+# ---------------------------------------------------------------------------
+
+REVIEW_SYSTEM_PROMPT = (
+    "你是一个专业的中文文档语义审阅专家，擅长发现文档结构问题、歧义表达、术语不一致等高价值语义问题。\n"
+    "你的任务是：\n"
+    "  1. 为给定段落打上结构标签（与结构分析专家相同）；\n"
+    "  2. 针对文档中的语义问题，给出可执行的建议。\n"
+    "你必须严格按照 JSON Schema 输出，不得包含任何额外说明文字。\n"
+    "输出的 JSON 必须包含字段：doc_language, total_paragraphs, paragraphs（数组）, suggestions（数组）。\n"
+    "paragraphs 中每个段落必须包含：index, text_preview, paragraph_type, confidence, reasoning。\n"
+    "paragraph_type 只能取：title_1, title_2, title_3, body, list_item, table_caption, "
+    "figure_caption, abstract, keyword, reference, footer, unknown。\n"
+    "suggestions 是语义建议列表，每条建议必须包含以下字段：\n"
+    "  category（建议类别）：hierarchy（标题层级）/ ambiguity（歧义）/ structure（结构改写）"
+    "/ style（文体）/ terminology（术语一致性）\n"
+    "  severity（严重程度）：low / medium / high\n"
+    "  confidence（建议置信度）：0.0~1.0 浮点数\n"
+    "  evidence（依据）：原文片段或定位信息，如「段落3: 本文档…」\n"
+    "  suggestion（建议内容）：具体可执行的修改建议\n"
+    "  rationale（建议原因）：为何提出此建议\n"
+    "  apply_mode：auto（可自动应用）或 manual（需人工确认），默认 manual\n"
+    "  paragraph_index（可选）：关联段落序号\n"
+    "只针对真正有价值的语义问题给出建议（不要泛泛罗列），聚焦：\n"
+    "  - 标题层级混乱（hierarchy）\n"
+    "  - 歧义或不明确表达（ambiguity）\n"
+    "  - 可列表化/表格化的长段落（structure）\n"
+    "  - 同一概念术语不一致（terminology）\n"
+    "若无明显问题，suggestions 数组可为空。"
+)
+
+
+def build_review_prompt(
+    paragraphs: List[str],
+    triggered_indices: Optional[List[int]] = None,
+    rule_labels: Optional[Dict[int, str]] = None,
+) -> str:
+    """
+    构造语义审阅用户 Prompt。
+
+    :param paragraphs: 全部段落文本列表（按原始文档顺序）
+    :param triggered_indices: 需要重点审阅的段落索引列表（hybrid 模式下非空）；
+                              None 表示全量审阅（llm 模式）
+    :param rule_labels: 规则层给出的标签（paragraph_index -> role），用于给 LLM 提供参考
+    :return: 格式化后的用户 Prompt 字符串
+    """
+    if triggered_indices is not None:
+        # hybrid 模式：只传入触发段落，并注明规则标签供参考
+        indices_to_review = sorted(triggered_indices)
+        n = len(indices_to_review)
+        lines_list = []
+        for i in indices_to_review:
+            text = paragraphs[i] if i < len(paragraphs) else ""
+            rule_hint = ""
+            if rule_labels:
+                rule_role = rule_labels.get(i, "unknown")
+                rule_hint = f" [规则标签: {rule_role}]"
+            lines_list.append(
+                f"  序号{i}{rule_hint}: \"{text[:80]}{'...' if len(text) > 80 else ''}\""
+            )
+        lines = "\n".join(lines_list)
+        return (
+            f"以下是需要重点语义审阅的段落（共 {n} 个，来自规则触发），请为每段给出结构标签，"
+            f"并针对文档整体给出可执行建议：\n\n"
+            f"{lines}\n\n"
+            f"请输出符合 Schema 的 JSON（total_paragraphs={n}）。"
+        )
+    else:
+        # llm 模式：全量审阅
+        n = len(paragraphs)
+        lines = "\n".join(
+            f"  序号{i}: \"{text[:80]}{'...' if len(text) > 80 else ''}\""
+            for i, text in enumerate(paragraphs)
+        )
+        return (
+            f"请对以下中文文档（共 {n} 个段落）进行结构标注与语义审阅：\n\n"
+            f"{lines}\n\n"
+            "请输出符合 Schema 的 JSON。"
+        )
 
 
 def build_user_prompt(paragraphs: List[str]) -> str:
