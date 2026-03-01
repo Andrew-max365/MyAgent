@@ -15,6 +15,7 @@ venv/
 .DS_Store
 .idea/
 *.iml
+.vscode/
 .pytest_cache/
 .coverage
 htmlcov/

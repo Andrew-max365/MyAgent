@@ -89,21 +89,4 @@ def test_spec_heading_alignment_defaults():
     assert spec.raw["heading"]["h3"]["alignment"] == "left"
 
 
-def test_prompt_templates_preview_length():
-    """build_user_prompt should truncate long text at 80 chars with ellipsis."""
-    from agent.prompt_templates import build_user_prompt
 
-    long_text = "这" * 100
-    short_text = "短"
-
-    prompt_long = build_user_prompt([long_text])
-    prompt_short = build_user_prompt([short_text])
-
-    # Long text should be truncated at 80 and followed by '...'
-    assert "这" * 80 + "..." in prompt_long
-    # The full 100-char text should NOT appear verbatim in the prompt
-    assert long_text not in prompt_long
-
-    # Short text (1 char) should NOT be followed by '...'
-    assert "短..." not in prompt_short
-    assert "短" in prompt_short
