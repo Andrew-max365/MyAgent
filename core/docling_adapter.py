@@ -17,19 +17,30 @@ except ImportError:
     pass
 
 
+# Maps DocItemLabel string values (from docling_core.types.doc.labels.DocItemLabel)
+# to the project's internal role labels.
+# DocItemLabel values: title, section_header, list_item, text, paragraph, caption,
+# footnote, page_header, page_footer, reference, code, formula, chart, picture, table,
+# document_index, form, key_value_region, grading_scale.
 DOCLING_LABEL_MAP = {
     "title": "h1",
-    "section_header": "h2",
+    "section_header": "h2",  # default; level-aware mapping is applied in _map_docling_to_blocks
     "list_item": "list_item",
     "table": "body",
-    "figure": "body",
+    "picture": "body",
+    "figure": "body",       # legacy alias
     "text": "body",
+    "paragraph": "body",    # DocItemLabel.PARAGRAPH used for Word processor paragraphs
+    "code": "body",
+    "formula": "body",
+    "chart": "body",
     "caption": "caption",
     "footnote": "footer",
     "page_header": "h1",
     "page_footer": "footer",
     "abstract": "abstract",
     "reference": "reference",
+    "document_index": "body",
 }
 
 
@@ -52,13 +63,27 @@ def parse_with_docling(file_path: str) -> Tuple[Any, list]:
 
 
 def _map_docling_to_blocks(docling_doc: Any) -> list:
-    """将 Docling 文档结构映射到 role hint 列表。"""
+    """将 Docling 文档结构映射到 role hint 列表。
+
+    SectionHeaderItem 带有 level 属性（整数，1-based），用于区分 h1/h2/h3。
+    """
     hints: list = []
     try:
         items = getattr(docling_doc, "texts", [])
         for i, item in enumerate(items):
             label = getattr(item, "label", "text")
-            role = DOCLING_LABEL_MAP.get(str(label).lower(), "body")
+            label_str = str(label).lower()
+            # Level-aware mapping for section headers
+            if label_str == "section_header":
+                level = getattr(item, "level", 2)
+                if level == 1:
+                    role = "h1"
+                elif level == 2:
+                    role = "h2"
+                else:
+                    role = "h3"
+            else:
+                role = DOCLING_LABEL_MAP.get(label_str, "body")
             hints.append({"index": i, "role": role, "text": getattr(item, "text", "")})
     except Exception as e:
         warnings.warn(f"[docling_adapter] 映射 Docling 文档结构失败: {e}", stacklevel=2)

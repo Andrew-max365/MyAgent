@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import json
 import tempfile
+from typing import Optional
 
 try:
     import chainlit as cl

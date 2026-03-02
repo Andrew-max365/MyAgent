@@ -1,7 +1,7 @@
 # agent/graph/workflow.py
 from __future__ import annotations
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 
 from agent.graph.react_schemas import GraphState
 from agent.graph.nodes import ingest_node, reason_node, act_node, validate_node, retry_router
@@ -13,7 +13,7 @@ def build_react_graph():
     g.add_node("reason", reason_node)
     g.add_node("act", act_node)
     g.add_node("validate", validate_node)
-    g.set_entry_point("ingest")
+    g.add_edge(START, "ingest")
     g.add_edge("ingest", "reason")
     g.add_edge("reason", "act")
     g.add_edge("act", "validate")

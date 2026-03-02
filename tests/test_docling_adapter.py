@@ -21,6 +21,11 @@ def test_docling_label_map_has_expected_keys():
     assert "list_item" in DOCLING_LABEL_MAP
     assert DOCLING_LABEL_MAP["title"] == "h1"
     assert DOCLING_LABEL_MAP["section_header"] == "h2"
+    # New labels from DocItemLabel enum
+    assert "paragraph" in DOCLING_LABEL_MAP, "DocItemLabel.PARAGRAPH must be mapped"
+    assert DOCLING_LABEL_MAP["paragraph"] == "body"
+    assert "code" in DOCLING_LABEL_MAP
+    assert "formula" in DOCLING_LABEL_MAP
 
 
 def test_map_docling_to_blocks_empty():
@@ -58,6 +63,45 @@ def test_map_docling_to_blocks_handles_exception():
     # Should not raise
     result = _map_docling_to_blocks(mock_doc)
     assert isinstance(result, list)
+
+
+def test_map_docling_to_blocks_paragraph_label():
+    """DocItemLabel.PARAGRAPH (used for Word processor paragraphs) should map to body."""
+    item = MagicMock()
+    item.label = "paragraph"
+    item.text = "Some body text"
+    mock_doc = MagicMock()
+    mock_doc.texts = [item]
+    result = _map_docling_to_blocks(mock_doc)
+    assert result[0]["role"] == "body"
+
+
+def test_map_docling_to_blocks_section_header_level_aware():
+    """SectionHeaderItem with level attribute should produce h1/h2/h3."""
+    items = []
+    for lvl, expected_role in [(1, "h1"), (2, "h2"), (3, "h3"), (4, "h3")]:
+        item = MagicMock()
+        item.label = "section_header"
+        item.level = lvl
+        item.text = f"Header level {lvl}"
+        items.append((item, expected_role))
+
+    mock_doc = MagicMock()
+    mock_doc.texts = [i for i, _ in items]
+    result = _map_docling_to_blocks(mock_doc)
+    for (item, expected), got in zip(items, result):
+        assert got["role"] == expected, f"level={item.level}: expected {expected}, got {got['role']}"
+
+
+def test_map_docling_to_blocks_section_header_no_level_defaults_h2():
+    """SectionHeaderItem without level attribute defaults to h2."""
+    item = MagicMock(spec=["label", "text"])  # no 'level' attr
+    item.label = "section_header"
+    item.text = "Header"
+    mock_doc = MagicMock()
+    mock_doc.texts = [item]
+    result = _map_docling_to_blocks(mock_doc)
+    assert result[0]["role"] == "h2"
 
 
 def test_parse_with_fallback_uses_original_parser_when_docling_disabled(tmp_path):
