@@ -9,26 +9,17 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import json
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import streamlit as st
 import matplotlib.pyplot as plt
 
 # ✅ 用 Agent 层（更符合比赛叙事：Perception→Reasoning→Action→Explanation）
 # 你之前运行的是 python -m agent.Structura_agent ...
-from agent.Structura_agent import run_doc_agent_bytes
+from agent.Structura_agent import run_doc_agent_bytes, _safe_get
 from config import LLM_MODE
 
 LABEL_MODES = ["rule", "llm", "hybrid"]
-
-
-def _safe_get(d: Dict[str, Any], *keys: str, default=None):
-    cur: Any = d
-    for k in keys:
-        if not isinstance(cur, dict) or k not in cur:
-            return default
-        cur = cur[k]
-    return cur
 
 
 def _format_pct(x: Optional[float]) -> str:

@@ -8,12 +8,12 @@ import warnings
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
-from config import LLM_MODE
+from config import LLM_MODE, ENABLE_DOCLING
 from core.spec import load_spec
-from core.parser import parse_docx_to_blocks
 from core.judge import rule_based_labels
 from core.formatter import apply_formatting
 from core.writer import save_docx
+from core.docling_adapter import parse_with_fallback
 
 
 VALID_LABEL_MODES = {"rule", "llm", "hybrid"}
@@ -101,7 +101,7 @@ def format_docx_file(
 
     spec = load_spec(spec_path)
 
-    doc, blocks = parse_docx_to_blocks(input_path)
+    doc, blocks = parse_with_fallback(input_path, use_docling=ENABLE_DOCLING)
     labels = _resolve_labels(blocks, doc, label_mode=label_mode)
 
     report = apply_formatting(doc, blocks, labels, spec)
