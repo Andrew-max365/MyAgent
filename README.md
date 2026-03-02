@@ -306,3 +306,96 @@ python format_docx.py input.docx output.docx --label-mode hybrid
 > **说明**：上表为**设计目标值**，用于衡量系统稳定性与可靠性。
 > 评测方法：在自有语料集上运行排版后，人工抽查 20% 段落，对照 spec 定义的字号/缩进/加粗/斜体进行对比。
 > 若需在 CI 中自动收集覆盖率，运行 `python -m pytest tests/ -q` 并查看 `report.json` 中的 `labels.coverage` 与 `labels.consistency` 字段。
+
+---
+
+## ReAct 自校正 Agent（LangGraph）
+
+### 架构概述
+
+```
+ingest → reason → act → validate ──(passed or max_iters)──► END
+                   ▲                        │
+                   └────────(retry)─────────┘
+```
+
+MyAgent 新增基于 [LangGraph](https://github.com/langchain-ai/langgraph) 的 **ReAct 迭代闭环**，将文档格式化升级为：
+
+1. **Ingest** — 解析 `.docx` 得到 blocks
+2. **Reason** — 生成 ActionPlan（思维链 + 动作列表）
+3. **Act** — 执行动作（set_role / fix_heading_level / no_op …）
+4. **Validate** — 运行 formatter，检查错误；若通过则结束，否则重试（最多 `REACT_MAX_ITERS` 次）
+
+### 配置参数
+
+| 参数 | 环境变量 | 默认值 | 说明 |
+|---|---|---|---|
+| `REACT_MAX_ITERS` | `REACT_MAX_ITERS` | `3` | ReAct 最大迭代次数 |
+| `REACT_STRICT_SCHEMA` | `REACT_STRICT_SCHEMA` | `true` | 严格 Pydantic schema 校验 |
+| `ENABLE_DOCLING` | `ENABLE_DOCLING` | `false` | 启用 Docling 文档解析 |
+| `LLM_API_KEY` | `LLM_API_KEY` | `""` | 大模型 API Key（rule 模式不需要） |
+| `LLM_BASE_URL` | `LLM_BASE_URL` | OpenAI | API 基础 URL |
+| `LLM_MODEL` | `LLM_MODEL` | `gpt-4o` | 模型名称 |
+| `LLM_MODE` | `LLM_MODE` | `hybrid` | 默认排版模式 |
+| `LLM_TIMEOUT_S` | `LLM_TIMEOUT_S` | `60` | 读取超时（秒） |
+
+### 运行方式
+
+#### CLI（命令行）
+
+```bash
+# 规则模式（无需 API Key）
+python format_docx.py input.docx output.docx --label-mode rule
+
+# 混合模式
+python format_docx.py input.docx output.docx --label-mode hybrid
+
+# ReAct 迭代模式
+python format_docx.py input.docx output.docx --label-mode react
+
+# 输出报告
+python format_docx.py input.docx output.docx --label-mode react --report report.json
+```
+
+#### Streamlit UI
+
+```bash
+streamlit run ui/app.py
+```
+
+#### Chainlit UI（ReAct 模式）
+
+```bash
+chainlit run ui/chainlit_app.py
+```
+
+访问后选择模式：`rule` / `llm` / `hybrid` / `react`，然后上传 `.docx` 文件。
+
+### 常见问题排查
+
+| 问题 | 原因 | 解决方案 |
+|---|---|---|
+| `ModuleNotFoundError: langgraph` | 未安装依赖 | `pip install langgraph>=0.2.0` |
+| `ModuleNotFoundError: chainlit` | 未安装依赖 | `pip install chainlit>=1.0.0` |
+| ReAct 模式无法调用 LLM | `LLM_API_KEY` 未设置 | 设置环境变量，或使用 rule 模式（无需 Key） |
+| Docling 解析失败 | `docling` 包未安装 | 自动回退原 parser；若需启用请 `pip install docling` |
+| `REACT_MAX_ITERS` 达到上限仍有错误 | 文档结构过于复杂 | 增大 `REACT_MAX_ITERS` 或改用 `hybrid` 模式 |
+
+### 新增模块结构
+
+```
+agent/graph/
+├── __init__.py          # 导出 GraphState, Action, ActionPlan 等
+├── react_schemas.py     # Pydantic schema：Action / ActionPlan / Observation / GraphState
+├── nodes.py             # LangGraph 节点函数：ingest / reason / act / validate / retry_router
+└── workflow.py          # build_react_graph() + run_react_agent()
+
+core/
+├── docling_adapter.py   # Docling 解析适配器（可选，失败时回退原 parser）
+└── schemas/
+    ├── __init__.py
+    └── report.py        # AgentReport / DiagnosticsReport / ReactTraceEntry …
+
+ui/
+└── chainlit_app.py      # Chainlit 前端（支持 rule/llm/hybrid/react 四种模式）
+```
