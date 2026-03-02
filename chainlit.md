@@ -1,14 +1,26 @@
-# Welcome to Chainlit! 🚀🤖
+# 欢迎使用 MyAgent 文档格式化智能体 📄🤖
 
-Hi there, Developer! 👋 We're excited to have you on board. Chainlit is a powerful tool designed to help you prototype, debug and share applications built on top of LLMs.
+## 快速开始
 
-## Useful Links 🔗
+1. **选择模式**：发送 `rule` / `llm` / `hybrid` / `react` 切换排版模式
+2. **上传文档**：上传 `.docx` 文件，智能体自动排版并展示修改建议
+3. **审阅建议**：对 LLM 校对建议，可回复：
+   - `确认` 或 `全部接受` — 应用全部建议后自动生成下载链接
+   - `全部拒绝` — 跳过所有校对建议，直接下载格式化文档
+   - `不要修改#3`（可多个，如 `不要#2 #5`）— 跳过指定建议，其余应用后生成下载链接
+4. **下载产物**：处理完成后，页面自动提供格式化后的 `.docx` 文档和 `.json` 诊断报告
 
-- **Documentation:** Get started with our comprehensive [Chainlit Documentation](https://docs.chainlit.io) 📚
-- **Discord Community:** Join our friendly [Chainlit Discord](https://discord.gg/k73SQ3FyUh) to ask questions, share your projects, and connect with other developers! 💬
+## 排版模式说明
 
-We can't wait to see what you create with Chainlit! Happy coding! 💻😊
+| 模式 | 说明 |
+|------|------|
+| `rule` | 纯规则排版，速度最快，无需 LLM API Key |
+| `llm` | LLM 辅助排版（需设置 `LLM_API_KEY`），失败自动回退 rule |
+| `hybrid` | 规则 + LLM 混合（推荐），兼顾速度与质量 |
+| `react` | ReAct 迭代模式，多轮校验，适合复杂文档 |
 
-## Welcome screen
+## 启动命令
 
-To modify the welcome screen, edit the `chainlit.md` file at the root of your project. If you do not want a welcome screen, just leave this file empty.
+```bash
+chainlit run ui/chainlit_app.py
+```
