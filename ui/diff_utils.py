@@ -320,6 +320,77 @@ def generate_diff_html(diff_items: List[DiffItem]) -> str:
     return generate_diff_markdown(diff_items)
 
 
+def generate_diff_cards_markdown(
+    diff_items: List[DiffItem],
+    paragraph_texts: Optional[List[str]] = None,
+) -> str:
+    """
+    Generate a GFM markdown string with one "card" per diff item that renders
+    visually in the Chainlit browser UI without any download:
+
+    - Paragraph context shown as a Markdown blockquote.
+    - Original fragment rendered with GFM **~~strikethrough~~** (displays as
+      red-ish struck-out text in most renderers).
+    - Suggested replacement rendered as **bold**.
+    - Rationale shown as italic below the diff line.
+
+    :param diff_items:       List of DiffItem objects to render.
+    :param paragraph_texts:  Optional list of raw paragraph strings from the
+                             formatted document (indexed by paragraph position).
+                             When supplied, the relevant paragraph is quoted above
+                             the diff line so the reviewer sees the full context.
+    """
+    blocks: List[str] = []
+    for item in diff_items:
+        icon = _ISSUE_ICONS.get(item.issue_type, "📝")
+        sev = _SEVERITY_ICONS.get(item.severity, "")
+        label = _ISSUE_LABELS.get(item.issue_type, item.issue_type)
+        loc = f"（段落 {item.para_idx}）" if item.para_idx is not None else ""
+
+        # ── Escape markdown special chars inside variable content ────────────
+        def _esc(s: str) -> str:
+            return (
+                s.replace("\\", "\\\\")
+                .replace("`", "\\`")
+                .replace("*", "\\*")
+                .replace("_", "\\_")
+                .replace("~", "\\~")
+                .replace("[", "\\[")
+                .replace("]", "\\]")
+                .replace("\n", " ")
+            )
+
+        card_lines: List[str] = [
+            f"**#{item.number}** {icon}{sev} `{label}`{loc}",
+        ]
+
+        # Paragraph context as a blockquote
+        para_idx = item.para_idx
+        if (
+            para_idx is not None
+            and paragraph_texts is not None
+            and 0 <= para_idx < len(paragraph_texts)
+        ):
+            ctx = paragraph_texts[para_idx].strip()
+            if len(ctx) > 120:
+                ctx = ctx[:120] + "…"
+            if ctx:
+                card_lines.append(f"> {ctx}")
+
+        # Diff line: ~~evidence~~ → **suggestion**
+        card_lines.append(
+            f"~~{_esc(item.evidence)}~~ → **{_esc(item.suggestion)}**"
+        )
+
+        # Rationale
+        if item.rationale:
+            card_lines.append(f"💡 _{_esc(item.rationale)}_")
+
+        blocks.append("\n\n".join(card_lines))
+
+    return "\n\n---\n\n".join(blocks)
+
+
 # ---------------------------------------------------------------------------
 # Redline Word document (tracked-changes-style preview)
 # ---------------------------------------------------------------------------
