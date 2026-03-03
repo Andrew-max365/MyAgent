@@ -200,8 +200,8 @@ def main():
     parser.add_argument("--report", default=None, help="report.json 输出路径（可选）")
     parser.add_argument("--no-report", action="store_true", help="不写 report.json 文件")
     parser.add_argument("--agent-json", default=None, help="额外输出 agent_result 的 json（便于调试/展示）")
-    parser.add_argument("--label-mode", default=LLM_MODE, choices=["rule", "llm", "hybrid"],
-                        help="标签模式：rule(规则) / llm(大模型) / hybrid(大模型+规则兜底)")
+    parser.add_argument("--label-mode", default=LLM_MODE, choices=["hybrid", "react"],
+                        help="标签模式：hybrid(规则+LLM校对) / react(Agent迭代)")
 
     args = parser.parse_args()
 

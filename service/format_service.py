@@ -16,7 +16,7 @@ from core.writer import save_docx
 from core.docling_adapter import parse_with_fallback
 
 
-VALID_LABEL_MODES = {"rule", "llm", "hybrid"}
+VALID_LABEL_MODES = {"hybrid"}
 
 
 def ensure_docx_path(path: str) -> str:
@@ -41,15 +41,12 @@ class FormatResult:
 
 
 def _resolve_labels(blocks, doc, label_mode: str) -> Dict[Any, str]:
-    mode = (label_mode or "rule").strip().lower()
+    mode = (label_mode or "hybrid").strip().lower()
     if mode not in VALID_LABEL_MODES:
         raise ValueError(f"label_mode must be one of {sorted(VALID_LABEL_MODES)}, got: {label_mode}")
 
     rule = rule_based_labels(blocks, doc=doc)
     rule["_source"] = "rule_based"
-
-    if mode == "rule":
-        return rule
 
     try:
         from agent.mode_router import ModeRouter
