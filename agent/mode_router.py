@@ -107,17 +107,10 @@ def _compute_hybrid_triggers(blocks, rule_labels: Dict) -> Dict:
 
 class ModeRouter:
     """
-    三模式路由器：根据 mode 参数（或 LLM_MODE 环境变量）将分析请求路由到
-    rule / llm / hybrid 三种处理逻辑。
+    hybrid 模式路由器：规则负责全部排版，仅当触发条件命中时 LLM 对触发段落做校对。
 
     模式职责边界
     ============
-    rule：仅执行确定性规则完成排版，不调用 LLM。
-
-    llm：规则负责全部排版，LLM 仅对整篇文档做校对（错别字/标点/规范性），
-         输出校对问题列表供提交者自行修改（不自动应用）。
-         输出包含 _llm_proofread 键，携带 DocumentProofread（issues 校对问题列表）。
-
     hybrid：先运行规则层排版，仅当触发条件命中时调用 LLM 对触发段落做校对。
             输出包含 _hybrid_triggers 键（触发原因/指标）和 _llm_proofread
             键（若触发了 LLM）。若无触发，完全等同于规则模式，不会调用 LLM。
@@ -125,58 +118,31 @@ class ModeRouter:
 
     def __init__(self, mode: str = LLM_MODE):
         """
-        :param mode: 排版模式，"rule" / "llm" / "hybrid"
+        :param mode: 排版模式，当前仅支持 "hybrid"
         """
-        if mode not in ("rule", "llm", "hybrid"):
-            raise ValueError(f"mode 必须为 rule/llm/hybrid，当前值: {mode!r}")
+        if mode != "hybrid":
+            raise ValueError(f"mode 必须为 hybrid，当前值: {mode!r}")
         self.mode = mode
-        # DocAnalyzer 按需初始化（rule 模式下不创建，避免触发 API Key 检查）
+        # DocAnalyzer 按需初始化，避免触发 API Key 检查
         self._analyzer: DocAnalyzer | None = None
 
     @property
     def analyzer(self) -> DocAnalyzer:
-        """懒加载 DocAnalyzer（rule 模式下不需要）"""
+        """懒加载 DocAnalyzer"""
         if self._analyzer is None:
             self._analyzer = DocAnalyzer()
         return self._analyzer
 
     def route(self, doc, blocks, rule_labels: Dict) -> Dict:
         """
-        路由入口：根据 mode 分发到对应的处理逻辑。
+        路由入口：运行 hybrid 处理逻辑。
 
         :param doc: python-docx Document 对象
         :param blocks: List[Block]，由 core.parser.parse_docx_to_blocks 返回
         :param rule_labels: {block_id: role}，由 core.judge.rule_based_labels 返回
-        :return: {block_id: role, "_source": mode} 标签字典，rule_labels 不被修改
+        :return: {block_id: role, "_source": "hybrid"} 标签字典，rule_labels 不被修改
         """
-        if self.mode == "rule":
-            result = dict(rule_labels)
-            result["_source"] = "rule"
-            return result
-        elif self.mode == "llm":
-            return self._llm(doc, blocks, rule_labels)
-        else:
-            return self._hybrid(doc, blocks, rule_labels)
-
-    def _llm(self, doc, blocks, rule_labels: Dict) -> Dict:
-        """
-        LLM 模式：规则负责全部排版，LLM 仅对整篇文档做校对。
-
-        校对结果（错别字/标点/规范性问题）写入 _llm_proofread，
-        供提交者自行修改，不自动应用。
-        """
-        # 排版标签完全来自规则
-        result = dict(rule_labels)
-        result["_source"] = "llm"
-
-        # LLM 仅做校对，不做结构标注
-        proofread: DocumentProofread = self.analyzer.client.call_proofread(
-            paragraphs=self._extract_paragraphs(doc),
-        )
-        result["_llm_proofread"] = {
-            "issues": [issue.model_dump() for issue in proofread.issues],
-        }
-        return result
+        return self._hybrid(doc, blocks, rule_labels)
 
     def _hybrid(self, doc, blocks, rule_labels: Dict) -> Dict:
         """

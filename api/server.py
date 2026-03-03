@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent.Structura_agent import run_doc_agent_bytes
-from config import LLM_MODE, REQUIRE_AUTH, SERVER_API_KEY
+from config import REQUIRE_AUTH, SERVER_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ def health() -> dict:
 async def format_docx_json(
     file: UploadFile = File(..., description="待排版的 .docx 文件"),
     spec_path: str = Form("specs/default.yaml"),
-    label_mode: Literal["rule", "llm", "hybrid"] = Form(LLM_MODE),
+    label_mode: Literal["hybrid"] = Form("hybrid"),
 ):
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only .docx files are supported")
@@ -93,7 +93,7 @@ async def format_docx_json(
 async def format_docx_bundle(
     file: UploadFile = File(..., description="待排版的 .docx 文件"),
     spec_path: str = Form("specs/default.yaml"),
-    label_mode: Literal["rule", "llm", "hybrid"] = Form(LLM_MODE),
+    label_mode: Literal["hybrid"] = Form("hybrid"),
 ):
     if not file.filename or not file.filename.lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Only .docx files are supported")

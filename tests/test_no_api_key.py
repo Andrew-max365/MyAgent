@@ -1,5 +1,5 @@
 # tests/test_no_api_key.py
-"""Tests that rule/hybrid modes work correctly without an LLM API key."""
+"""Tests that hybrid mode works correctly without an LLM API key."""
 from __future__ import annotations
 
 import os
@@ -26,44 +26,34 @@ def simple_docx(tmp_path):
     return p
 
 
-def test_rule_mode_no_api_key(simple_docx, tmp_path):
-    """rule mode must complete without any LLM API key."""
-    out = str(tmp_path / "out_rule.docx")
-    with patch.dict(os.environ, {"LLM_API_KEY": ""}):
-        from service.format_service import format_docx_file
-        result = format_docx_file(simple_docx, out, label_mode="rule")
-    assert os.path.exists(result.output_path)
-
-
-def test_hybrid_mode_no_api_key_falls_back(simple_docx, tmp_path):
-    """hybrid mode should fall back to rule mode when API key is missing."""
+def test_hybrid_mode_no_api_key(simple_docx, tmp_path):
+    """hybrid mode must complete without any LLM API key (falls back to rule-based)."""
     out = str(tmp_path / "out_hybrid.docx")
     with patch.dict(os.environ, {"LLM_API_KEY": ""}):
         from service.format_service import format_docx_file
-        # Should not raise even without API key
         result = format_docx_file(simple_docx, out, label_mode="hybrid")
     assert os.path.exists(result.output_path)
 
 
-def test_rule_mode_bytes_no_api_key(simple_docx):
-    """format_docx_bytes in rule mode should work without API key."""
+def test_hybrid_mode_bytes_no_api_key(simple_docx):
+    """format_docx_bytes in hybrid mode should work without API key (falls back to rule-based)."""
     with open(simple_docx, "rb") as f:
         data = f.read()
 
     with patch.dict(os.environ, {"LLM_API_KEY": ""}):
         from service.format_service import format_docx_bytes
-        out_bytes, report = format_docx_bytes(data, label_mode="rule")
+        out_bytes, report = format_docx_bytes(data, label_mode="hybrid")
 
     assert isinstance(out_bytes, bytes)
     assert len(out_bytes) > 0
 
 
 def test_report_contains_meta_no_api_key(simple_docx, tmp_path):
-    """Rule mode report should contain meta section even without API key."""
+    """Hybrid mode report should contain meta section even without API key."""
     out = str(tmp_path / "out_meta.docx")
     with patch.dict(os.environ, {"LLM_API_KEY": ""}):
         from service.format_service import format_docx_file
-        result = format_docx_file(simple_docx, out, label_mode="rule")
+        result = format_docx_file(simple_docx, out, label_mode="hybrid")
 
     report = result.report
     assert isinstance(report, dict)

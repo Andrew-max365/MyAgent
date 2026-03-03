@@ -16,8 +16,8 @@ def main():
     parser.add_argument(
         "--label-mode",
         default=LLM_MODE,
-        choices=["rule", "llm", "hybrid", "react"],
-        help="label mode: rule / llm / hybrid / react (ReAct iterative loop)",
+        choices=["hybrid", "react"],
+        help="label mode: hybrid (规则+LLM校对) / react (ReAct 迭代 Agent)",
     )
     args = parser.parse_args()
 

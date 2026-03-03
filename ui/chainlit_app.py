@@ -37,7 +37,7 @@ from ui.diff_utils import (
     DiffItem,
 )
 
-LABEL_MODES = ["rule", "llm", "hybrid", "react"]
+LABEL_MODES = ["hybrid", "react"]
 
 # Session state keys
 _KEY_LABEL_MODE = "label_mode"
@@ -57,12 +57,8 @@ _MAX_CHAT_HISTORY = 20
 
 
 def _make_mode_actions() -> List[cl.Action]:
-    """Return the four mode-selection action buttons."""
+    """Return the two mode-selection action buttons."""
     return [
-        cl.Action(name="mode_rule",   payload={"mode": "rule"},   label="📐 Rule 模式",
-                  tooltip="纯规则排版，速度最快，无需 LLM Key"),
-        cl.Action(name="mode_llm",    payload={"mode": "llm"},    label="🤖 LLM 模式",
-                  tooltip="LLM 辅助排版（需 LLM_API_KEY）"),
         cl.Action(name="mode_hybrid", payload={"mode": "hybrid"}, label="⚡ Hybrid（推荐）",
                   tooltip="规则 + LLM 混合，兼顾速度与质量"),
         cl.Action(name="mode_react",  payload={"mode": "react"},  label="🔁 ReAct 模式",
@@ -102,16 +98,6 @@ async def _set_mode(value: str, action: cl.Action) -> None:
         actions=_make_mode_actions(),
     ).send()
     await action.remove()
-
-
-@cl.action_callback("mode_rule")
-async def on_mode_rule(action: cl.Action):
-    await _set_mode(action.payload.get("mode", "rule"), action)
-
-
-@cl.action_callback("mode_llm")
-async def on_mode_llm(action: cl.Action):
-    await _set_mode(action.payload.get("mode", "llm"), action)
 
 
 @cl.action_callback("mode_hybrid")
