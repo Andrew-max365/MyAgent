@@ -1,143 +1,634 @@
-# agent/intent_parser.py
-"""
-意图解析器：将用户自然语言中的排版需求转换为结构化配置字典。
-例："把标题改成黑色" → {"heading": {"h1": {"color": "000000"}, "h2": {"color": "000000"}, "h3": {"color": "000000"}}}
-"""
-from __future__ import annotations
+# import os
+# import json
+# import re
+# import hashlib
+# import openai
+# from typing import Dict, Optional
+# from duckduckgo_search import DDGS    # ✅ 真正能用的免费搜索库
+# from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+#
+#
+# CACHE_FILE_PATH = os.path.join(os.path.dirname(__file__), "search_cache.json")
+#
+#
+# def load_search_cache() -> Dict[str, str]:
+#     try:
+#         with open(CACHE_FILE_PATH, "r", encoding="utf-8") as f:
+#             return json.load(f)
+#     except (FileNotFoundError, json.JSONDecodeError):
+#         return {}
+#
+#
+# def save_search_cache(cache: Dict[str, str]):
+#     try:
+#         with open(CACHE_FILE_PATH, "w", encoding="utf-8") as f:
+#             json.dump(cache, f, ensure_ascii=False, indent=2)
+#     except Exception as e:
+#         print(f"⚠️ [Cache] 缓存保存失败: {e}")
+#
+#
+# SEARCH_CACHE = load_search_cache()
+#
+# # ==========================================
+# # 工具定义
+# # ==========================================
+# TOOLS = [
+#     {
+#         "type": "function",
+#         "function": {
+#             "name": "web_search",
+#             "description": "当用户要求按照特定的规范（如公文格式、特定期刊格式等）排版，且你不知道具体参数时，使用此工具搜索该规范的具体要求（字号、行距等相关信息）。",
+#             "parameters": {
+#                 "type": "object",
+#                 "properties": {
+#                     "query": {
+#                         "type": "string",
+#                         "description": "搜索的关键词，例如：'中文公文 标准排版 字号 行距'"
+#                     }
+#                 },
+#                 "required": ["query"]
+#             }
+#         }
+#     }
+# ]
+#
+#
+# # ==========================================
+# # 真实搜索函数实现
+# # ==========================================
+# def execute_web_search(query: str, use_cache: bool = True) -> str:
+#     global SEARCH_CACHE
+#
+#     if use_cache:
+#         query_hash = hashlib.md5(query.encode("utf-8")).hexdigest()
+#         if query_hash in SEARCH_CACHE:
+#             print(f"💾 [Cache Hit] 命中搜索缓存: {query[:30]}...")
+#             return SEARCH_CACHE[query_hash]
+#
+#     print(f"🔍 [Search] 正在全网真实搜索: {query[:30]}...")
+#     try:
+#         # ✅ 使用 DuckDuckGo 执行真实搜索
+#         results = DDGS().text(query, max_results=3)
+#         if not results:
+#             return "未搜到相关具体规范，请根据通用标准推测。"
+#
+#         formatted_results = [f"- {res['body']}" for res in results]
+#         final_result = "\n".join(formatted_results)
+#
+#         if use_cache:
+#             SEARCH_CACHE[query_hash] = final_result
+#             save_search_cache(SEARCH_CACHE)
+#
+#         return final_result
+#     except Exception as e:
+#         print(f"❌ [Search Error] 搜索失败: {e}")
+#         return "搜索失败，请依赖你的基础知识进行排版。"
+#
+#
+# # ==========================================
+# # 动态加载外部常识库
+# # ==========================================
+# KNOWLEDGE_FILE_PATH = os.path.join(os.path.dirname(__file__), "formatting_knowledge.md")
+#
+#
+# def load_knowledge_base() -> str:
+#     try:
+#         with open(KNOWLEDGE_FILE_PATH, "r", encoding="utf-8") as f:
+#             return f.read()
+#     except FileNotFoundError:
+#         # 如果文件不存在，给一个内置的兜底常识
+#         return """
+#         1. 字号换算：小四=12.0pt，四号=14.0pt，小三=15.0pt，三号=16.0pt，二号=22.0pt。
+#         2. 常见颜色：红色=FF0000, 黑色=000000, 蓝色=0000FF。
+#         3. 字体规范：报告或正文必须默认使用 宋体 (Songti)；标题常用 黑体。
+#         """
+#
+#
+# # ==========================================
+# # 系统提示词 (✅ 恢复了你项目专属的 JSON 结构)
+# # ==========================================
+# def build_intent_prompt() -> str:
+#     return f"""你是一个专业的 Word 文档排版解析器，主要对现有文档进行格式美化，而不是生成文档。
+# 你的唯一任务是：提取用户的排版要求，并严格转化为指定的 JSON 格式。
+#
+# 【JSON 格式要求】（绝对不能改变此结构）
+# {{
+#   "body": {{"font_size_pt": 浮点数, "line_spacing": 浮点数, "color": "十六进制", "font_name": "字体名称"}},
+#   "heading": {{
+#     "h1": {{"font_size_pt": 浮点数, "color": "十六进制", "align": "center/left/right", "font_name": "字体名称"}},
+#     "h2": {{...}}
+#   }}
+# }}
+#
+# 【基础排版常识库】
+# {load_knowledge_base()}
+#
+# 【工具调用策略】
+# 1. 优先常识库：当用户指令简单（如改颜色、改小四字号、改成宋体），严禁调用搜索工具！
+# 2. 复杂需搜索：遇到不懂的宏观规范（如“国标公文格式”），请调用 web_search 工具。
+# 3. 铁律：最终输出只准包含一个合法的 JSON 字符串，绝对不要有任何多余的解释文字！
+# """
+#
+#
+# # ==========================================
+# # 核心解析函数（包含 ReAct 循环）
+# # ==========================================
+# async def parse_formatting_intent(user_text: str) -> dict:
+#     if not user_text or not LLM_API_KEY:
+#         return {}
+#
+#     client = openai.AsyncOpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0)
+#     messages = [
+#         {"role": "system", "content": build_intent_prompt()},
+#         {"role": "user", "content": f"用户指令: {user_text}"}
+#     ]
+#
+#     try:
+#         print(f"\n👉 [Start] 准备解析指令...")
+#         response = await client.chat.completions.create(
+#             model=LLM_MODEL,
+#             messages=messages,
+#             tools=TOOLS,
+#             tool_choice="auto",
+#             temperature=0.1
+#         )
+#
+#         response_message = response.choices[0].message
+#         messages.append(response_message.model_dump())
+#
+#         # 处理工具调用
+#         if response_message.tool_calls:
+#             for tool_call in response_message.tool_calls:
+#                 if tool_call.function.name == "web_search":
+#                     args = json.loads(tool_call.function.arguments)
+#                     query = args.get("query", "")
+#
+#                     search_result = execute_web_search(query)
+#
+#                     messages.append({
+#                         "role": "tool",
+#                         "tool_call_id": tool_call.id,
+#                         "name": "web_search",
+#                         "content": search_result
+#                     })
+#
+#             print(f"👉 [ReAct] 获取外部知识完毕，正在生成最终 JSON...")
+#             final_response = await client.chat.completions.create(
+#                 model=LLM_MODEL,
+#                 messages=messages,
+#                 temperature=0.1,
+#                 max_tokens=500
+#             )
+#             final_content = final_response.choices[0].message.content.strip()
+#         else:
+#             final_content = response_message.content.strip()
+#
+#         print(f"✅ [Raw Output]:\n{final_content}")
+#
+#         # ✅ 使用 Kimi 写的强力 JSON 提取器
+#         return _extract_json(final_content) or {}
+#
+#     except Exception as e:
+#         print(f"❌ [Error] 解析流程异常: {e}")
+#         return {}
+#
+#
+# # ==========================================
+# # 强力 JSON 提取器 (保留 Kimi 的优秀逻辑)
+# # ==========================================
+# def _extract_json(text: str) -> Optional[dict]:
+#     if not text: return None
+#     text = text.strip()
+#
+#     if text.startswith("```json"):
+#         text = text[7:]
+#     elif text.startswith("```"):
+#         text = text[3:]
+#     if text.endswith("```"): text = text[:-3]
+#     text = text.strip()
+#
+#     try:
+#         return json.loads(text)
+#     except:
+#         pass
+#
+#     code_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+#     if code_block_match:
+#         try:
+#             return json.loads(code_block_match.group(1))
+#         except:
+#             pass
+#
+#     json_match = re.search(r'\{.*\}', text, re.DOTALL)
+#     if json_match:
+#         try:
+#             return json.loads(json_match.group(0))
+#         except:
+#             pass
+#
+#     return None
+#
+#
+# # ==========================================
+# # 校对建议反馈解析 (被误删的恢复部分)
+# # ==========================================
+# async def parse_feedback_intent(user_text: str, total_items: int) -> dict:
+#     """
+#     解析用户对于 LLM 校对建议的自然语言反馈。
+#     返回格式: {"intent": "accept_all"|"reject_all"|"partial"|"unknown", "rejected_indices": [1, 2...]}
+#     """
+#     if not user_text or not LLM_API_KEY:
+#         return {"intent": "unknown", "rejected_indices": []}
+#
+#     client = openai.AsyncOpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=15.0)
+#
+#     system_prompt = f"""你是一个专业的意图解析器。当前系统向用户展示了 {total_items} 条文档修改建议（编号从 1 到 {total_items}）。
+# 请解析用户刚刚输入的意思，并严格返回如下 JSON 格式：
+# {{
+#   "intent": "accept_all" | "reject_all" | "partial" | "unknown",
+#   "rejected_indices": [整数列表]
+# }}
+#
+# 【解析规则】
+# 1. "accept_all": 用户同意所有修改（如“好的”、“全部接受”、“没问题”）。rejected_indices 必须为 []。
+# 2. "reject_all": 用户拒绝所有修改（如“都不改”、“全部拒绝”、“不需要”）。rejected_indices 必须为 [1, 2, ..., {total_items}]。
+# 3. "partial": 用户只拒绝了部分，或只接受了部分（如“拒绝第2条”、“保留第1条其余不要”）。你需要在 rejected_indices 中列出所有**被拒绝**的编号。
+# 4. "unknown": 完全无关的闲聊，无法判断意图。
+#
+# 【输出铁律】
+# 绝对不准输出任何自然语言，只准输出一个合法的 JSON 字符串！
+# """
+#
+#     try:
+#         response = await client.chat.completions.create(
+#             model=LLM_MODEL,
+#             messages=[
+#                 {"role": "system", "content": system_prompt},
+#                 {"role": "user", "content": f"用户意见: {user_text}"}
+#             ],
+#             temperature=0.1,
+#             max_tokens=200
+#         )
+#         content = response.choices[0].message.content.strip()
+#
+#         # 复用文件中已经写好的强大 JSON 提取器
+#         result = _extract_json(content)
+#         if result and "intent" in result:
+#             return result
+#         return {"intent": "unknown", "rejected_indices": []}
+#     except Exception as e:
+#         print(f"❌ [Error] 解析反馈意图异常: {e}")
+#         return {"intent": "unknown", "rejected_indices": []}
 
+
+import os
 import json
 import re
-from typing import Any, Dict, Optional
-
+import hashlib
+import openai
+import datetime
+import requests
+from typing import Dict, Optional
+from duckduckgo_search import DDGS
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
-_INTENT_PARSE_TIMEOUT = 15.0   # 意图解析 API 超时（秒）
-_INTENT_PARSE_MAX_TOKENS = 300  # 意图解析最大输出 token 数
+# 尝试导入优质 API 密钥，如果没有配置则设为 None
+try:
+    from config import BING_API_KEY, GOOGLE_API_KEY, GOOGLE_CX
+except ImportError:
+    BING_API_KEY = None
+    GOOGLE_API_KEY = None
+    GOOGLE_CX = None
 
-_FORMATTING_SYSTEM_PROMPT = (
-    "你是一个高级文档排版配置智能体。你的任务是理解用户的自然语言排版需求（不仅限于颜色，还包括字号、对齐、加粗、字体、行距等），并将其转换为严格的 JSON 配置覆盖字典。\n\n"
-    "【支持的配置结构与字段说明】（仅输出用户明确提及需要修改的字段，不要输出多余层级）：\n"
-    "{\n"
-    '  "fonts": {\n'
-    '    "zh": "宋体",                 // 中文字体\n'
-    '    "en": "Times New Roman"       // 英文字体\n'
-    '  },\n'
-    '  "body": {\n'
-    '    "color": "000000",          // 十六进制颜色（不含#号）\n'
-    '    "font_size_pt": 12.0,       // 字号(磅)。常用换算：小四=12.0，四号=14.0，小三=15.0，三号=16.0，五号=10.5\n'
-    '    "line_spacing": 1.5,        // 行间距（倍数）\n'
-    '    "first_line_chars": 2,      // 首行缩进（字符数）\n'
-    '    "alignment": "justify"      // 对齐方式：left(左对齐), center(居中), right(右对齐), justify(两端对齐)\n'
-    '  },\n'
-    '  "heading": {\n'
-    '    "h1": {\n'
-    '      "color": "000000", "font_size_pt": 16.0, "bold": true, "alignment": "center"\n'
-    '    },\n'
-    '    "h2": { /* 结构与h1相同 */ },\n'
-    '    "h3": { /* 结构与h1相同 */ }\n'
-    '  }\n'
-    "}\n\n"
-    "【智能解析规则】\n"
-    "1. 语义泛化：如果用户说“大标题”、“一级标题”，对应修改 h1；“二级标题”、“副标题”对应 h2；如果说“所有标题”、“标题”，则必须同时填充 h1, h2, h3。\n"
-    "2. 范围推断：如果用户说“全文”、“通篇”、“全部”改成某种颜色或字体，你需要同时输出 fonts、body 以及 heading 下所有层级的修改。\n"
-    "3. 模糊意图：如果用户说“字太小了”，你可以适度将正文字号上调（如推测修改为 14.0 或 15.0）。\n"
-    "4. 严格输出：如果没有涉及排版需求，输出 {}。严格输出纯 JSON，绝对不能包含任何 Markdown 标记（如 ```json）或额外的说明文字。\n"
-)
+# ==========================================
+# 缓存与额度配置
+# ==========================================
+CACHE_FILE_PATH = os.path.join(os.path.dirname(__file__), "search_cache.json")
+QUOTA_FILE_PATH = os.path.join(os.path.dirname(__file__), "search_quota.json")
+PREMIUM_DAILY_LIMIT = 30  # 每天允许使用优质搜索 API 的上限次数
 
 
-async def parse_formatting_intent(user_text: str) -> Optional[Dict[str, Any]]:
-    if not LLM_API_KEY:
-        return None
-
+def load_search_cache() -> Dict[str, str]:
     try:
-        import openai as _openai
+        with open(CACHE_FILE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
-        client = _openai.AsyncOpenAI(
-            api_key=LLM_API_KEY,
-            base_url=LLM_BASE_URL,
-            timeout=_INTENT_PARSE_TIMEOUT,
-        )
 
-        # ✅ 新增：请求前打印日志
-        print(f"\n👉 [Debug] 正在请求大模型解析排版意图: {user_text}")
-
-        response = await client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": _FORMATTING_SYSTEM_PROMPT},
-                {"role": "user", "content": user_text},
-            ],
-            max_tokens=_INTENT_PARSE_MAX_TOKENS,
-            # 注意：这里我们去掉了 response_format，避免某些 API 报错
-        )
-        raw = response.choices[0].message.content or ""
-
-        # ✅ 新增：打印原始回复，方便你在控制台监控
-        print(f"✅ [Debug] 大模型原始回复:\n{raw}")
-
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not match:
-            print("❌ [Debug] 未提取到有效的 JSON 配置")
-            return None
-
-        data = json.loads(match.group(0))
-        if not isinstance(data, dict) or not data:
-            print("⚠️ [Debug] 提取的 JSON 为空或非字典（非排版指令）")
-            return None
-
-        return data
-
+def save_search_cache(cache: Dict[str, str]):
+    try:
+        with open(CACHE_FILE_PATH, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        # ✅ 打印出真正的错误，不再静默失败
-        print(f"❌ [Debug] 意图解析器发生错误: {e}")
+        print(f"⚠️ [Cache] 缓存保存失败: {e}")
+
+
+SEARCH_CACHE = load_search_cache()
+
+
+def check_and_update_quota() -> bool:
+    """检查今天优质 API 的额度是否还有剩余"""
+    today = str(datetime.date.today())
+    try:
+        if os.path.exists(QUOTA_FILE_PATH):
+            with open(QUOTA_FILE_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        else:
+            data = {}
+
+        if data.get("date") != today:
+            data = {"date": today, "count": 0}
+
+        if data["count"] < PREMIUM_DAILY_LIMIT:
+            data["count"] += 1
+            with open(QUOTA_FILE_PATH, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            return True  # 额度充足
+        return False  # 额度耗尽
+    except Exception:
+        return False
+
+
+# ==========================================
+# 工具定义
+# ==========================================
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "当用户要求按照特定的规范（如公文格式、特定期刊格式等）排版，且你不知道具体参数时，使用此工具搜索该规范的具体要求（字号、行距等）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索关键词，例如：'中文公文 标准排版 字号 行距'"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    }
+]
+
+
+# ==========================================
+# 多级搜索逻辑实现（漏斗模型）
+# ==========================================
+def _call_bing_api(query: str, api_key: str) -> Optional[str]:
+    print(f"📡 [Premium] 正在呼叫 Bing 服务器: {query[:15]}...")
+    endpoint = "https://api.bing.microsoft.com/v7.0/search"
+    headers = {"Ocp-Apim-Subscription-Key": api_key}
+    params = {"q": query, "mkt": "zh-CN", "count": 3}
+
+    try:
+        response = requests.get(endpoint, headers=headers, params=params, timeout=10)
+        response.raise_for_status()
+        results = response.json().get("webPages", {}).get("value", [])
+        snippets = [f"- {item['snippet']}" for item in results]
+        return "\n".join(snippets) if snippets else None
+    except Exception as e:
+        print(f"❌ Bing API 调用失败: {e}")
         return None
 
 
-_FEEDBACK_SYSTEM_PROMPT = (
-    "你是一个校对建议决策解析器。当前共有 {total} 条校对建议。\n"
-    "用户的自然语言会指示他们想接受或拒绝哪些建议。\n"
-    "你需要将其解析为严格的 JSON，格式如下：\n"
-    "{{\n"
-    '  "intent": "accept_all" | "reject_all" | "partial",\n'
-    '  "rejected_indices": [2, 3] // 被拒绝的序号列表（从1开始计算）。如果是 partial 且只接受某几条，需推算出剩余被拒绝的序号。\n'
-    "}}\n\n"
-    "举例：\n"
-    "用户说：“全要/好的/确认”，返回 {{\"intent\": \"accept_all\", \"rejected_indices\": []}}\n"
-    "用户说：“都不要了/滚/全拒绝”，返回 {{\"intent\": \"reject_all\", \"rejected_indices\": [1,2,3...]}}\n"
-    "用户说：“除了第二条其他的都同意”，假设共3条，返回 {{\"intent\": \"partial\", \"rejected_indices\": [2]}}\n"
-    "用户说：“只要第1条和第3条”，假设共5条，返回 {{\"intent\": \"partial\", \"rejected_indices\": [2,4,5]}}\n"
-)
-
-
-async def parse_feedback_intent(user_text: str, total_items: int) -> dict:
-    """把用户的反馈自然语言，解析为操作意图和拒绝序号列表"""
-    if not LLM_API_KEY:
-        return {"intent": "unknown", "rejected_indices": []}
+def _call_google_api(query: str, api_key: str, cx: str) -> Optional[str]:
+    print(f"📡 [Premium] 正在呼叫 Google 服务器: {query[:15]}...")
+    endpoint = "https://www.googleapis.com/customsearch/v1"
+    params = {"key": api_key, "cx": cx, "q": query, "num": 3}
 
     try:
-        import openai as _openai
-        client = _openai.AsyncOpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=10.0)
+        response = requests.get(endpoint, params=params, timeout=10)
+        response.raise_for_status()
+        results = response.json().get("items", [])
+        snippets = [f"- {item['snippet']}" for item in results]
+        return "\n".join(snippets) if snippets else None
+    except Exception as e:
+        print(f"❌ Google API 调用失败: {e}")
+        return None
 
-        prompt = _FEEDBACK_SYSTEM_PROMPT.format(total=total_items)
-        print(f"\n👉 [Debug] 正在请求大模型解析校对反馈: {user_text}")
 
+def execute_web_search(query: str, use_cache: bool = True) -> str:
+    global SEARCH_CACHE
+
+    # 1. 缓存层：0成本，0延时
+    if use_cache:
+        query_hash = hashlib.md5(query.encode("utf-8")).hexdigest()
+        if query_hash in SEARCH_CACHE:
+            print(f"💾 [Cache Hit] 命中搜索缓存: {query[:30]}...")
+            return SEARCH_CACHE[query_hash]
+
+    # 2. 优质 API 层：需有额度，且配置了 Key (自动路由 Bing 或 Google)
+    has_quota = check_and_update_quota()
+    if has_quota:
+        result = None
+        # 优先尝试 Bing
+        if BING_API_KEY and BING_API_KEY.strip():
+            result = _call_bing_api(query, BING_API_KEY)
+
+        # 如果没配 Bing，或者 Bing 失败了，且配置了 Google，则尝试 Google
+        if not result and GOOGLE_API_KEY and GOOGLE_API_KEY.strip() and GOOGLE_CX and GOOGLE_CX.strip():
+            result = _call_google_api(query, GOOGLE_API_KEY, GOOGLE_CX)
+
+        # 如果商业 API 成功拿到了数据，直接返回并缓存
+        if result:
+            if use_cache:
+                SEARCH_CACHE[query_hash] = result
+                save_search_cache(SEARCH_CACHE)
+            return result
+
+    # 3. 兜底层：DuckDuckGo 免费爬虫
+    print(f"🦆 [Fallback Search] 商业API未配置或失败，改用 DuckDuckGo: {query[:20]}...")
+    try:
+        results = DDGS().text(query, max_results=3)
+        if not results:
+            return "未搜到相关具体规范，请根据通用标准推测。"
+
+        formatted_results = [f"- {res['body']}" for res in results]
+        final_result = "\n".join(formatted_results)
+
+        if use_cache:
+            SEARCH_CACHE[query_hash] = final_result
+            save_search_cache(SEARCH_CACHE)
+
+        return final_result
+    except Exception as e:
+        print(f"❌ [Search Error] 所有搜索渠道均失败: {e}")
+        return "搜索失败，请依赖你的基础知识进行排版。"
+
+
+# ==========================================
+# 动态加载外部常识库
+# ==========================================
+KNOWLEDGE_FILE_PATH = os.path.join(os.path.dirname(__file__), "formatting_knowledge.md")
+
+
+def load_knowledge_base() -> str:
+    try:
+        with open(KNOWLEDGE_FILE_PATH, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "暂无外部常识库，请依赖自身内置知识或搜索。"
+
+
+def build_intent_prompt() -> str:
+    return f"""你是一个专业的 Word 文档排版解析器，主要对现有文档进行格式美化。
+你的唯一任务是：提取用户的排版要求，并严格转化为指定的 JSON 格式。
+
+【JSON 格式要求】（绝对不能改变此结构）
+{{
+  "body": {{"font_size_pt": 浮点数, "line_spacing": 浮点数, "color": "十六进制", "font_name": "字体名称"}},
+  "heading": {{
+    "h1": {{"font_size_pt": 浮点数, "color": "十六进制", "align": "center/left/right", "font_name": "字体名称"}},
+    "h2": {{...}}
+  }}
+}}
+
+【基础排版常识库】
+{load_knowledge_base()}
+
+【工具调用策略】
+1. 优先常识库：当用户指令简单或能在上方常识库找到答案时，严禁调用搜索工具！
+2. 复杂需搜索：遇到不懂的宏观规范，请调用 web_search 工具。
+3. 铁律：最终输出只准包含一个合法的 JSON 字符串，绝对不要有多余的解释文字！
+"""
+
+
+# ==========================================
+# 核心排版意图解析（含 ReAct）
+# ==========================================
+async def parse_formatting_intent(user_text: str) -> dict:
+    if not user_text or not LLM_API_KEY:
+        return {}
+
+    client = openai.AsyncOpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0)
+    messages = [
+        {"role": "system", "content": build_intent_prompt()},
+        {"role": "user", "content": f"用户指令: {user_text}"}
+    ]
+
+    try:
         response = await client.chat.completions.create(
             model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": f"用户反馈: {user_text}"}
-            ],
-            max_tokens=200,
+            messages=messages,
+            tools=TOOLS,
+            tool_choice="auto",
             temperature=0.1
         )
-        raw = response.choices[0].message.content or ""
-        print(f"✅ [Debug] 反馈解析结果:\n{raw}")
 
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
+        response_message = response.choices[0].message
+        messages.append(response_message.model_dump())
 
+        if response_message.tool_calls:
+            for tool_call in response_message.tool_calls:
+                if tool_call.function.name == "web_search":
+                    args = json.loads(tool_call.function.arguments)
+                    query = args.get("query", "")
+
+                    search_result = execute_web_search(query)
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": "web_search",
+                        "content": search_result
+                    })
+
+            final_response = await client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                temperature=0.1,
+                max_tokens=500
+            )
+            final_content = final_response.choices[0].message.content.strip()
+        else:
+            final_content = response_message.content.strip()
+
+        return _extract_json(final_content) or {}
     except Exception as e:
-        print(f"❌ [Debug] 反馈解析报错: {e}")
+        print(f"❌ [Error] 解析排版意图异常: {e}")
+        return {}
 
-    return {"intent": "unknown", "rejected_indices": []}
+
+# ==========================================
+# 校对建议反馈解析
+# ==========================================
+async def parse_feedback_intent(user_text: str, total_items: int) -> dict:
+    """解析用户对于 LLM 校对建议的自然语言反馈"""
+    if not user_text or not LLM_API_KEY:
+        return {"intent": "unknown", "rejected_indices": []}
+
+    client = openai.AsyncOpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=15.0)
+
+    system_prompt = f"""你是一个专业的意图解析器。当前系统向用户展示了 {total_items} 条文档修改建议（编号从 1 到 {total_items}）。
+请解析用户刚刚输入的意思，并严格返回如下 JSON 格式：
+{{
+  "intent": "accept_all" | "reject_all" | "partial" | "unknown",
+  "rejected_indices": [整数列表]
+}}
+
+【解析规则】
+1. "accept_all": 用户同意所有修改。rejected_indices 必须为 []。
+2. "reject_all": 用户拒绝所有修改。rejected_indices 必须为 [1, 2, ..., {total_items}]。
+3. "partial": 用户只拒绝了部分，或只接受了部分。在 rejected_indices 列出所有被拒绝的编号。
+4. "unknown": 无法判断意图。
+
+【输出铁律】
+只准输出合法的 JSON 字符串！
+"""
+    try:
+        response = await client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"用户意见: {user_text}"}
+            ],
+            temperature=0.1,
+            max_tokens=200
+        )
+        content = response.choices[0].message.content.strip()
+        result = _extract_json(content)
+        if result and "intent" in result:
+            return result
+        return {"intent": "unknown", "rejected_indices": []}
+    except Exception as e:
+        print(f"❌ [Error] 解析反馈意图异常: {e}")
+        return {"intent": "unknown", "rejected_indices": []}
+
+
+# ==========================================
+# 强力 JSON 提取器
+# ==========================================
+def _extract_json(text: str) -> Optional[dict]:
+    if not text: return None
+    text = text.strip()
+
+    if text.startswith("```json"):
+        text = text[7:]
+    elif text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"): text = text[:-3]
+    text = text.strip()
+
+    try:
+        return json.loads(text)
+    except:
+        pass
+
+    code_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if code_block_match:
+        try:
+            return json.loads(code_block_match.group(1))
+        except:
+            pass
+
+    json_match = re.search(r'\{.*\}', text, re.DOTALL)
+    if json_match:
+        try:
+            return json.loads(json_match.group(0))
+        except:
+            pass
+
+    return None

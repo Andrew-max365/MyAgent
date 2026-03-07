@@ -230,8 +230,16 @@ def _apply_paragraph_common(p, line_spacing: float, space_before_pt: float, spac
     pf = p.paragraph_format
     pf.space_before = Pt(space_before_pt)
     pf.space_after = Pt(space_after_pt)
-    pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
-    pf.line_spacing = line_spacing
+
+    if line_spacing is not None:
+        if line_spacing >= 5.0:
+            # 必须使用 Pt() 包裹，并设置规则为 EXACTLY（固定值）
+            pf.line_spacing = Pt(line_spacing)
+            pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+        else:
+            # 直接赋值，并设置规则为 MULTIPLE（多倍行距）
+            pf.line_spacing = line_spacing
+            pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
 
 
 def _resolve_alignment(name: str):

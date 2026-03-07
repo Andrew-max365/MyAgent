@@ -143,11 +143,21 @@ async def on_mode_hybrid(action: cl.Action):
 async def on_mode_react(action: cl.Action):
     await _set_mode(action.payload.get("mode", "react"), action)
 
-@cl.action_callback("diff_action")    #当用户点击了 '全部接受' 或 '全部拒绝' 按钮
-async def on_diff_action(action: cl.Action):
-    await action.remove()  # 点完就让按钮消失，防止重复点击
-    intent = action.value  # "accept_all" 或 "reject_all"
-    await _execute_feedback(intent, [])
+# @cl.action_callback("diff_action")    #当用户点击了 '全部接受' 或 '全部拒绝' 按钮
+# async def on_diff_action(action: cl.Action):
+#     await action.remove()  # 点完就让按钮消失，防止重复点击
+#     intent = action.value  # "accept_all" 或 "reject_all"
+#     await _execute_feedback(intent, [])
+
+@cl.action_callback("accept_all_action")
+async def on_accept_all(action: cl.Action):
+    await action.remove()  # 点完就让按钮消失
+    await _execute_feedback("accept_all", [])
+
+@cl.action_callback("reject_all_action")
+async def on_reject_all(action: cl.Action):
+    await action.remove()  # 点完就让按钮消失
+    await _execute_feedback("reject_all", [])
 
 
 @cl.on_message
@@ -268,17 +278,6 @@ async def _process_file(
         await _show_diff_cards(diff_items)
         cl.user_session.set(_KEY_STATE, "awaiting_feedback")
 
-        # ✅ 替换为带交互按钮的消息
-        await cl.Message(
-            content=(
-                "🤔 以上是 LLM 校对建议。您可以点击下方按钮快捷操作，或者直接打字告诉我您的决定：\n"
-                "> 💡 *例如：“只保留第一个”、“除了第二条其他都接受”*"
-            ),
-            actions=[
-                cl.Action(name="diff_action", value="accept_all", label="✅ 全部接受"),
-                cl.Action(name="diff_action", value="reject_all", label="❌ 全部拒绝"),
-            ]
-        ).send()
     else:
         await _provide_download(out_bytes, report, filename, applied=0)
 
@@ -355,12 +354,23 @@ async def _run_react_with_steps(
 
 
 async def _show_diff_cards(diff_items: List[DiffItem]) -> None:
-    """Display diff items as plain markdown: original text and suggestion on two lines each."""
+    """Display diff items as plain markdown with action buttons at the bottom."""
     lines = [f"### 🔍 LLM 校对建议（共 {len(diff_items)} 条）\n"]
     for item in diff_items:
         lines.append(item.to_markdown())
         lines.append("")  # blank line between items
-    await cl.Message(content="\n".join(lines)).send()
+
+    lines.append("---\n🤔 **请点击下方按钮快捷操作，或者直接打字告诉我您的决定：**")
+
+    # 核心修改：将按钮直接挂载在输出建议的这条消息上！
+    await cl.Message(
+        content="\n".join(lines),
+        actions=[
+            # 💡 补充 value="accept"，防止前端渲染失败
+            cl.Action(name="accept_all_action", payload={"action": "accept"}, label="✅ 全部接受"),
+            cl.Action(name="reject_all_action", payload={"action": "reject"}, label="❌ 全部拒绝"),
+        ]
+    ).send()
 
 
 async def _execute_feedback(intent: str, rejected: List[int]) -> None:
@@ -588,7 +598,7 @@ async def _handle_chat(text: str) -> None:
     history.append({"role": "user", "content": text})
 
     try:
-        client = _openai.AsyncOpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+        client = _openai.AsyncOpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL, timeout=30.0)
         msg = cl.Message(content="")
         await msg.send()
         reply_parts: List[str] = []

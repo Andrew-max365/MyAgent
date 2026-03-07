@@ -42,3 +42,10 @@ REQUIRE_AUTH: bool = os.getenv("REQUIRE_AUTH", "false").strip().lower() == "true
 REACT_MAX_ITERS: int = max(1, int(os.getenv("REACT_MAX_ITERS", "3")))
 REACT_STRICT_SCHEMA: bool = os.getenv("REACT_STRICT_SCHEMA", "true").strip().lower() == "true"
 ENABLE_DOCLING: bool = os.getenv("ENABLE_DOCLING", "false").strip().lower() == "true"
+
+# Bing 搜索配置:填入你的 Azure Bing Key
+BING_API_KEY = ""
+
+# Google 搜索配置
+GOOGLE_API_KEY = ""
+GOOGLE_CX = ""  #Google 搜索引擎 ID
